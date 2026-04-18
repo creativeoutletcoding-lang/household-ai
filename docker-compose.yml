@@ -1,0 +1,170 @@
+# Household AI — n8n + Open WebUI + Postgres
+#
+# Tuned for a 2 vCPU / 2 GB DigitalOcean droplet (Ubuntu 24.04).
+# Everything runs on the private `household` network.
+# Only Caddy (installed on the host, not here) binds public ports.
+#
+# Start:   docker compose up -d
+# Logs:    docker compose logs -f <service>
+# Status:  docker compose ps
+
+name: household-ai
+
+networks:
+  household:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  n8n_data:
+  openwebui_data:
+
+services:
+  # ---------------------------------------------------------------------------
+  # Postgres — shared database for n8n, Open WebUI, and conversation memory.
+  # Not exposed to the host. Reachable only from containers on `household`.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: household-postgres
+    restart: unless-stopped
+    networks: [household]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # extra DBs are created by the init script below
+      N8N_DB: ${N8N_DB}
+      OPENWEBUI_DB: ${OPENWEBUI_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  # ---------------------------------------------------------------------------
+  # n8n — workflow engine. Hosts the Telegram bot and all Claude glue.
+  # Reverse-proxied by Caddy at n8n.${DOMAIN}.
+  # ---------------------------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: household-n8n
+    restart: unless-stopped
+    networks: [household]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # --- database ---
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${N8N_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+
+      # --- public URL (behind Caddy, HTTPS terminated there) ---
+      N8N_HOST: n8n.${DOMAIN}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://n8n.${DOMAIN}/
+      N8N_EDITOR_BASE_URL: https://n8n.${DOMAIN}/
+      N8N_PROXY_HOPS: 1
+
+      # --- auth on the editor (belt-and-braces on top of HTTPS) ---
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+
+      # --- encryption key for stored credentials (do NOT change after first run) ---
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+
+      # --- pass Claude key through to workflows ---
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+
+      # --- runtime ---
+      GENERIC_TIMEZONE: ${TZ:-America/Los_Angeles}
+      N8N_LOG_LEVEL: info
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "336"      # 14 days
+    volumes:
+      - n8n_data:/home/node/.n8n
+    deploy:
+      resources:
+        limits:
+          memory: 640M
+
+  # ---------------------------------------------------------------------------
+  # Open WebUI — the family-facing chat UI. Points at the Claude-compatible
+  # n8n pipeline (or directly at Anthropic via a proxy function) for replies.
+  # Reverse-proxied by Caddy at chat.${DOMAIN}.
+  # ---------------------------------------------------------------------------
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: household-openwebui
+    restart: unless-stopped
+    networks: [household]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # --- database ---
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${OPENWEBUI_DB}
+
+      # --- public URL + auth ---
+      WEBUI_URL: https://chat.${DOMAIN}
+      WEBUI_SECRET_KEY: ${OPENWEBUI_SECRET_KEY}
+      ENABLE_SIGNUP: "${OPENWEBUI_ENABLE_SIGNUP:-false}"
+      DEFAULT_USER_ROLE: "${OPENWEBUI_DEFAULT_ROLE:-pending}"
+
+      # --- Anthropic integration ---
+      # Open WebUI speaks OpenAI-style APIs; we either point it at a
+      # Claude-compatible gateway or proxy through n8n. Both approaches are
+      # documented in runbook.md. The key below is also available to pipeline
+      # functions so you can call Claude directly from the UI.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+
+      # Turn off the default Ollama discovery — we are not running local models.
+      ENABLE_OLLAMA_API: "false"
+
+      # Lightweight mode: disable heavy background indexing on the small droplet.
+      RAG_EMBEDDING_ENGINE: ""
+      AUDIO_STT_ENGINE: ""
+      AUDIO_TTS_ENGINE: ""
+    volumes:
+      - openwebui_data:/app/backend/data
+    deploy:
+      resources:
+        limits:
+          memory: 640M
+
+  # ---------------------------------------------------------------------------
+  # Watchtower — nightly image updates for n8n / Open WebUI.
+  # Optional; comment out if you'd rather pin versions and update by hand.
+  # ---------------------------------------------------------------------------
+  watchtower:
+    image: containrrr/watchtower
+    container_name: household-watchtower
+    restart: unless-stopped
+    networks: [household]
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_SCHEDULE: "0 0 3 * * *"    # 03:00 local time
+      WATCHTOWER_LABEL_ENABLE: "true"
+      TZ: ${TZ:-America/Los_Angeles}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      resources:
+        limits:
+          memory: 64M
