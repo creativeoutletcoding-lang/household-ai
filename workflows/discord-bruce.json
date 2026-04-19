@@ -1,66 +1,46 @@
 {
-  "name": "Discord — Bruce",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
         "path": "discord-bruce",
-        "responseMode": "onReceived",
-        "responseCode": 204,
         "options": {}
       },
-      "id": "1a000000-0000-0000-0000-000000000001",
+      "id": "27e7c7af-3b78-4161-aa0c-79cc3effa9bc",
       "name": "Webhook (relay in)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [200, 300],
+      "position": [
+        -1232,
+        80
+      ],
       "webhookId": "discord-bruce"
     },
     {
       "parameters": {
         "jsCode": "// Unwrap the webhook body so downstream nodes can read the Discord\n// payload fields at the top level — matches the shape the Channel Router\n// was originally written against.\nconst item = $input.item.json || {};\nconst body = item.body || item;\nreturn [{ json: body }];\n"
       },
-      "id": "1a000000-0000-0000-0000-00000000000a",
+      "id": "b36a760b-f157-41e6-a03c-843e4cbf3914",
       "name": "Unwrap Body",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [380, 300]
+      "position": [
+        -1056,
+        80
+      ]
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose"
-          },
-          "conditions": [
-            {
-              "id": "cond-not-bot",
-              "leftValue": "={{ $json.author.bot }}",
-              "rightValue": true,
-              "operator": { "type": "boolean", "operation": "notEqual" }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
+        "jsCode": "// ---------------------------------------------------------------------------\n// Channel Router\n//\n// Reads the incoming Discord message (from discord-relay via Unwrap Body),\n// decides whether Bruce should respond, detects /use commands, and chooses\n// which Claude model to call.\n//\n// This Code node does NOT execute SQL itself — n8n Code nodes can't.\n// Surrounding nodes handle the Postgres parts:\n//\n//   Upstream (optional, improves UX):\n//     \"Fetch User Preference\" — Postgres node between \"Ignore Bots\" and\n//     \"Channel Router\". Query:\n//       SELECT model FROM user_model_preferences\n//        WHERE discord_user_id = $1 AND channel_id = $2\n//       LIMIT 1\n//     Params: {{ $json.author.id }}, {{ $json.channel_id }}\n//\n//   Downstream (for /use command persistence):\n//     \"Is /use command?\" IF node → branches on $json.isUseCommand === true\n//       true → \"Save User Preference\" (Postgres, UPSERT or DELETE depending\n//              on useReset) → \"Reply /use Confirmation\" (Discord node,\n//              posts $json.useReply)\n//       false → existing \"Should Respond?\" IF node (unchanged downstream)\n//\n// Keep the ROUTING table in sync with config/channel-routing.json.\n// ---------------------------------------------------------------------------\n\nconst DEFAULT_MODEL = 'claude-sonnet-4-6';\n\n// Short aliases users can type with /use <alias>.\nconst MODEL_SHORTCUTS = {\n  haiku:  'claude-haiku-4-5-20251001',\n  sonnet: 'claude-sonnet-4-6',\n  opus:   'claude-opus-4-6',\n};\n\nconst ROUTING = {\n  'general':        { behavior: 'mention-only', persona: 'general',        model: 'claude-haiku-4-5-20251001' },\n  'family':         { behavior: 'mention-only', persona: 'family',         model: 'claude-sonnet-4-6' },\n  'announcements':  { behavior: 'read-only',    persona: null,             model: null },\n  'fig':            { behavior: 'always',       persona: 'fig',            model: 'claude-opus-4-6' },\n  'jake-personal':  { behavior: 'always',       persona: 'jake-personal',  model: 'claude-sonnet-4-6' },\n  'jake-ask':       { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001' },\n  'travel':         { behavior: 'mention-only', persona: 'travel',         model: 'claude-sonnet-4-6' },\n  'food':           { behavior: 'always',       persona: 'food',           model: 'claude-sonnet-4-6' },\n  'cps':            { behavior: 'mention-only', persona: 'cps',            model: 'claude-sonnet-4-6' },\n  'loubi-personal': { behavior: 'always',       persona: 'loubi-personal', model: 'claude-sonnet-4-6' },\n  'wis':            { behavior: 'always',       persona: 'wis',            model: 'claude-sonnet-4-6' },\n  'loubi-ask':      { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001' },\n  'joce-personal':  { behavior: 'always',       persona: 'joce-personal',  model: 'claude-sonnet-4-6' },\n  'joce-school':    { behavior: 'always',       persona: 'joce-school',    model: 'claude-sonnet-4-6' },\n  'joce-ask':       { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001' },\n  'nana-personal':  { behavior: 'always',       persona: 'nana-personal',  model: 'claude-sonnet-4-6' },\n  'nana-ask':       { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001' },\n};\n\n// Short stub personas — REPLACE each string with the full content of the\n// matching prompts/channel-personas/<slug>.md file. Kept short here so the\n// workflow JSON stays small; paste the full markdown between the backticks.\nconst PERSONAS = {\n  'general': `You are Bruce, the household's shared AI assistant in #general. Audience: Jake, Loubi, Joce, Nana. Tone: warm, friendly, conversational. Only respond when @mentioned or replied to. Be concise. If a question belongs in a private channel, suggest moving there. Don't leak context from private channels.`,\n\n  'family': `You are Bruce helping the household in #family. Audience: Jake, Loubi, Joce, Nana. Tone: practical, structured, warm. Only respond when @mentioned or replied to. When planning: summarize, list open questions, propose a next step. Ask for specifics before assuming. Be honest about what you can and can't do.`,\n\n  'fig': `You are Bruce, Jake's work assistant in #fig. Jake is an Account Executive at Foundation Insurance Group (FIG). Respond to every message. Help with: client meeting prep, outreach drafts, account strategy, objection handling, call note summaries. Treat everything as confidential. Match Jake's register. When Jake shares notes: return a 3-bullet summary, open questions, and next steps. Keep email drafts under 120 words.`,\n\n  'jake-personal': `You are Bruce, Jake's personal assistant in #jake-personal. Private channel. Respond to every message. Tone: frank, curious, lightly challenging. Jake wants a thought partner, not a cheerleader. Push back when reasoning is thin. Ask clarifying questions before jumping in. On health/medical: share what you know but point him to a professional. On learning projects: offer concrete next actions.`,\n\n  'ask': `You are Bruce in a quick-answer channel. Be fast and concise. Get to the answer immediately — no preamble, no over-explanation. Use bullet points over paragraphs. If the question genuinely needs deeper thought, say so briefly and suggest moving to a personal channel, but still give your best short answer.`,\n\n  'travel': `You are Bruce in #travel, Jake and Loubi's trip planning channel. Help with itineraries, flight and hotel tradeoffs, packing lists, visa requirements, and budget planning. Before drafting anything detailed, ask about travel style (adventure vs relaxation), rough budget, and dates. Both Jake and Loubi use this channel together — phrase responses so they land for both.`,\n\n  'food': `You are Bruce in #food, Jake and Loubi's meal planning and recipe channel. Help with weekly meal planning, recipes, grocery lists, and restaurant recommendations. For meal planning: ask about dietary preferences, how many people eating, and the week's schedule before proposing a plan. For recipes: clear ingredient lists and concise steps. Note: Jake enjoys grilling proteins. Keep suggestions practical for a busy household.`,\n\n  'cps': `You are Bruce in #cps, the Capital Petsitters operations channel. Jake and Nana run CPS together. Respond only when @mentioned. Tone: operational, clear, actionable. For scheduling/client issues: ask for the specific case before reasoning. For policy questions: reference existing policy or flag that you're proposing a new one. For staff issues: be discreet and neutral. For pricing: think in concrete ranges and tradeoffs.`,\n\n  'loubi-personal': `You are Bruce, Loubi's personal assistant in #loubi-personal. Private channel. Respond to every message. Tone: warm, attentive, thoughtful. Listen before advising. Match her register — if she's venting, don't problem-solve until asked. Ask clarifying questions before giving structured advice. Keep everything from this channel private.`,\n\n  'wis': `You are Bruce, Loubi's work assistant in #wis. Loubi works at Washington International School (WIS). Respond to every message. Tone: collegial and crisp. Ask about grade level, subject, and context before drafting anything. For lesson planning: use objective → activities → assessment structure. For parent/colleague communication: warm, clear, concise. Never invent citations.`,\n\n  'joce-personal': `You are Bruce, Joce's personal assistant in #joce-personal. Joce is a high-school student. Private channel. Respond to every message. Tone: friendly, age-appropriate, real. Don't talk down. Listen first — if she's processing something, don't immediately solve. For social questions: ask context before advising. Be honest. For anything touching safety (mental health, substances, unsafe relationships): be supportive but always point to a trusted adult. Keep this channel private.`,\n\n  'joce-school': `You are Bruce in #joce-school, Joce's homework channel. Respond to every message. Be a tutor, not an answer key. Never just give answers — walk through thinking, ask what she's tried. For writing: never write the essay for her. Offer outlines and feedback. For math/science: explain steps, stop at junctions and ask what she'd do next. For test prep: quiz her. Hard rules: never write a paper she'll submit as her own, never give just the answer to graded work.`,\n\n  'nana-personal': `You are Bruce, Nana's personal assistant in #nana-personal. Private channel. Respond to every message. Tone: warm, respectful, patient. Ask what kind of help she wants before launching in. For tasks: be concrete and step-oriented. For personal reflection: listen first, advise only if asked. For health questions: share what you know but always point to her doctor. Keep this channel private.`,\n};\n\n// ---------------------------------------------------------------------------\n// Parse incoming message\n//\n// Upstream of this node is \"Fetch user Preference\" (Postgres), whose output\n// is a preference row — NOT the Discord body. Reach back to \"Unwrap Body\"\n// explicitly so we're always reading the Discord payload.\n// ---------------------------------------------------------------------------\nconst msg = $('Unwrap Body').first().json;\n\nconst channelName = msg.channel_name || (msg.channel && msg.channel.name) || '';\nconst channelId   = msg.channel_id   || (msg.channel && msg.channel.id)   || '';\nconst messageId   = msg.id           || msg.message_id                     || '';\nconst userId      = (msg.author && msg.author.id) || msg.author_id || '';\nconst content     = (msg.content || '').trim();\nconst mentions    = (msg.mentions || []).map(m => m.id || m);\nconst botMentioned = mentions.includes($env.DISCORD_BOT_USER_ID);\nconst isReplyToBot =\n  msg.referenced_message &&\n  msg.referenced_message.author &&\n  msg.referenced_message.author.id === $env.DISCORD_BOT_USER_ID;\n\nconst route = ROUTING[channelName] || { behavior: 'read-only', persona: null, model: null };\n\n// ---------------------------------------------------------------------------\n// /use command detection\n//   /use haiku|sonnet|opus    → expand shortcut, upsert preference\n//   /use <full-model-string>  → upsert preference as-is\n//   /use default              → delete preference, reset to channel default\n//   /use                      → print usage help\n// ---------------------------------------------------------------------------\nlet isUseCommand = false;\nlet useNewModel  = null;   // model string to upsert; null if reset/help\nlet useReset     = false;  // true → delete the pref row\nlet useReply     = null;   // confirmation text posted back to Discord\n\nif (/^\\/use(\\s|$)/i.test(content)) {\n  isUseCommand = true;\n  const arg = content.replace(/^\\/use\\s*/i, '').trim();\n\n  if (!arg) {\n    useReply = 'Usage: `/use <model>` — shortcuts: `haiku`, `sonnet`, `opus`. Or `/use default` to reset to this channel\\'s default.';\n  } else if (arg.toLowerCase() === 'default') {\n    useReset = true;\n    const resetTo = route.model || DEFAULT_MODEL;\n    useReply = `Reset — using the channel default for #${channelName}: \\`${resetTo}\\`.`;\n  } else {\n    const lower = arg.toLowerCase();\n    useNewModel = MODEL_SHORTCUTS[lower] || arg;\n    useReply = `Switched to \\`${useNewModel}\\` in this channel. Use \\`/use default\\` to reset.`;\n  }\n}\n\n// ---------------------------------------------------------------------------\n// Response gating\n// ---------------------------------------------------------------------------\nlet shouldRespond = false;\nif (route.behavior === 'always')       shouldRespond = true;\nif (route.behavior === 'mention-only') shouldRespond = botMentioned || isReplyToBot;\nif (route.behavior === 'read-only')    shouldRespond = false;\n\n// /use commands short-circuit the Claude call — they reply with the\n// confirmation text instead.\nif (isUseCommand) shouldRespond = false;\n\n// ---------------------------------------------------------------------------\n// Resolve effective model:\n//   user preference (if upstream Fetch node returned one) > channel default > fallback\n// ---------------------------------------------------------------------------\nlet userPreference = null;\ntry {\n  const prefItems = $('Fetch user Preference').all();\n  if (prefItems.length && prefItems[0].json && prefItems[0].json.model) {\n    userPreference = prefItems[0].json.model;\n  }\n} catch (_) {\n  // \"Fetch User Preference\" node doesn't exist yet — ignore.\n}\n\nconst modelDefault = route.model || DEFAULT_MODEL;\nconst model        = userPreference || modelDefault;\n\nreturn [{\n  json: {\n    // routing outputs\n    shouldRespond,\n    channelId,\n    channelName,\n    messageId,\n    userId,\n    content,\n    behavior: route.behavior,\n    persona: route.persona,\n    systemPrompt: route.persona ? (PERSONAS[route.persona] || '') : '',\n\n    // model selection outputs\n    model,\n    modelDefault,\n    userPreference,\n\n    // /use command outputs (consumed by downstream Save + Reply branch)\n    isUseCommand,\n    useNewModel,\n    useReset,\n    useReply,\n  }\n}];"
       },
-      "id": "1a000000-0000-0000-0000-000000000002",
-      "name": "Ignore Bots",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [560, 300]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Channel Router\n//\n// Reads the incoming Discord message (forwarded by the discord-relay\n// container), looks up routing for the channel, and decides whether Bruce\n// should respond. Also loads the appropriate persona content to be used\n// as the Claude system prompt.\n//\n// Keep the `ROUTING` and `PERSONAS` tables in sync with:\n//   config/channel-routing.json\n//   prompts/channel-personas/*.md\n//\n// When you change a persona, edit the string literal below AND the .md\n// file in the repo, then re-save this workflow.\n\nconst ROUTING = {\n  'general':        { behavior: 'mention-only', persona: 'general' },\n  'family':         { behavior: 'mention-only', persona: 'family' },\n  'announcements':  { behavior: 'read-only',    persona: null },\n  'fig':            { behavior: 'always',       persona: 'fig' },\n  'jake-personal':  { behavior: 'always',       persona: 'jake-personal' },\n  'lake':           { behavior: 'mention-only', persona: 'lake' },\n  'cps':            { behavior: 'mention-only', persona: 'cps' },\n  'loubi-personal': { behavior: 'always',       persona: 'loubi-personal' },\n  'wis':            { behavior: 'always',       persona: 'wis' },\n  'joce-personal':  { behavior: 'always',       persona: 'joce-personal' },\n  'joce-school':    { behavior: 'always',       persona: 'joce-school' },\n  'nana-personal':  { behavior: 'always',       persona: 'nana-personal' },\n};\n\n// Short stub personas — REPLACE THESE with the real prompt text from\n// prompts/channel-personas/<slug>.md. Kept short here so the workflow JSON\n// stays under the 1 MB import ceiling. For production, paste the full\n// persona markdown between the backticks for each slug.\nconst PERSONAS = {\n  'general':        `You are Bruce in #general. See prompts/channel-personas/general.md for the full persona; paste it here.`,\n  'family':         `You are Bruce in #family. See prompts/channel-personas/family.md for the full persona; paste it here.`,\n  'fig':            `You are Bruce in #fig. See prompts/channel-personas/fig.md for the full persona; paste it here.`,\n  'jake-personal':  `You are Bruce in #jake-personal. See prompts/channel-personas/jake-personal.md for the full persona; paste it here.`,\n  'lake':           `You are Bruce in #lake. See prompts/channel-personas/lake.md for the full persona; paste it here.`,\n  'cps':            `You are Bruce in #cps. See prompts/channel-personas/cps.md for the full persona; paste it here.`,\n  'loubi-personal': `You are Bruce in #loubi-personal. See prompts/channel-personas/loubi-personal.md for the full persona; paste it here.`,\n  'wis':            `You are Bruce in #wis. See prompts/channel-personas/wis.md for the full persona; paste it here.`,\n  'joce-personal':  `You are Bruce in #joce-personal. See prompts/channel-personas/joce-personal.md for the full persona; paste it here.`,\n  'joce-school':    `You are Bruce in #joce-school. See prompts/channel-personas/joce-school.md for the full persona; paste it here.`,\n  'nana-personal':  `You are Bruce in #nana-personal. See prompts/channel-personas/nana-personal.md for the full persona; paste it here.`,\n};\n\nconst msg = $input.item.json;\n\n// Normalize the shape of the Discord payload across n8n versions.\nconst channelName = msg.channel_name || (msg.channel && msg.channel.name) || '';\nconst channelId   = msg.channel_id   || (msg.channel && msg.channel.id)   || '';\nconst messageId   = msg.id           || msg.message_id                     || '';\nconst userId      = (msg.author && msg.author.id) || msg.author_id || '';\nconst content     = msg.content || '';\nconst mentions    = (msg.mentions || []).map(m => m.id || m);\nconst botMentioned = mentions.includes($env.DISCORD_BOT_USER_ID);\nconst isReplyToBot =\n  msg.referenced_message &&\n  msg.referenced_message.author &&\n  msg.referenced_message.author.id === $env.DISCORD_BOT_USER_ID;\n\nconst route = ROUTING[channelName] || { behavior: 'read-only', persona: null };\n\nlet shouldRespond = false;\nif (route.behavior === 'always')        shouldRespond = true;\nif (route.behavior === 'mention-only')  shouldRespond = botMentioned || isReplyToBot;\nif (route.behavior === 'read-only')     shouldRespond = false;\n\nreturn [{\n  json: {\n    shouldRespond,\n    channelId,\n    channelName,\n    messageId,\n    userId,\n    content,\n    behavior: route.behavior,\n    persona: route.persona,\n    systemPrompt: route.persona ? (PERSONAS[route.persona] || '') : '',\n  }\n}];\n"
-      },
-      "id": "1a000000-0000-0000-0000-000000000003",
+      "id": "00bdd7d6-fa14-47b2-93a1-8974b7e03528",
       "name": "Channel Router",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [780, 300]
+      "position": [
+        -640,
+        80
+      ]
     },
     {
       "parameters": {
@@ -75,49 +55,59 @@
               "id": "cond-should-respond",
               "leftValue": "={{ $json.shouldRespond }}",
               "rightValue": true,
-              "operator": { "type": "boolean", "operation": "equals" }
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "and"
         },
         "options": {}
       },
-      "id": "1a000000-0000-0000-0000-000000000004",
+      "id": "6aa8acb5-100d-43bc-9a04-e26eabfaacdb",
       "name": "Should Respond?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1000, 300]
+      "position": [
+        -208,
+        80
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT role, content, created_at\nFROM discord_conversations\nWHERE discord_user_id = $1\n  AND channel_id      = $2\nORDER BY created_at DESC\nLIMIT 20;",
-        "additionalFields": {
-          "queryParams": "={{ $json.userId }},{{ $json.channelId }}"
-        },
+        "query": "SELECT role, content, created_at\nFROM discord_conversations\nWHERE discord_user_id = '{{ $('Channel Router').first().json.userId }}'\n  AND channel_id = '{{ $('Channel Router').first().json.channelId }}'\nORDER BY created_at DESC\nLIMIT 20;",
         "options": {}
       },
-      "id": "1a000000-0000-0000-0000-000000000005",
+      "id": "ce3cafbb-2902-4c53-8eab-4f1347230a92",
       "name": "Fetch Conversation History",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1220, 220],
+      "position": [
+        0,
+        0
+      ],
+      "alwaysOutputData": true,
       "credentials": {
         "postgres": {
-          "id": "__SET_IN_N8N__",
-          "name": "Postgres (n8n)"
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "// Build the Anthropic /v1/messages request body.\n//\n// Conversation history came back newest-first from Postgres; reverse it\n// before feeding to Claude, which expects oldest-first.\n\nconst router   = $('Channel Router').first().json;\nconst rows     = $input.all().map(i => i.json).reverse();\n\nconst messages = rows\n  .filter(r => r.role === 'user' || r.role === 'assistant')\n  .map(r => ({ role: r.role, content: r.content }));\n\nmessages.push({ role: 'user', content: router.content });\n\nreturn [{\n  json: {\n    ...router,\n    requestBody: {\n      model: $env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',\n      max_tokens: 1024,\n      system: router.systemPrompt,\n      messages,\n    },\n  }\n}];\n"
+        "jsCode": "// Build the Anthropic /v1/messages request body.\n//\n// Model selection comes from the Channel Router:\n//   router.model = user preference (if any) > channel default > hardcoded fallback\n//\n// Conversation history came back newest-first from Postgres; reverse it\n// before feeding to Claude, which expects oldest-first.\n\nconst router = $('Channel Router').first().json;\nconst rows   = $input.all().map(i => i.json).reverse();\n\nconst messages = rows\n  .filter(r => r.role === 'user' || r.role === 'assistant')\n  .map(r => ({ role: r.role, content: r.content }));\n\nmessages.push({ role: 'user', content: router.content });\n\nreturn [{\n  json: {\n    ...router,\n    requestBody: {\n      model: router.model || $env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',\n      max_tokens: 1024,\n      system: router.systemPrompt,\n      messages,\n    },\n  }\n}];"
       },
-      "id": "1a000000-0000-0000-0000-000000000006",
+      "id": "1a1b0b86-225c-4921-91b1-075f722f5b5b",
       "name": "Build Claude Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1440, 220]
+      "position": [
+        224,
+        0
+      ]
     },
     {
       "parameters": {
@@ -126,9 +116,18 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-api-key",          "value": "={{ $env.ANTHROPIC_API_KEY }}" },
-            { "name": "anthropic-version",  "value": "2023-06-01" },
-            { "name": "content-type",       "value": "application/json" }
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -138,139 +137,434 @@
           "timeout": 60000
         }
       },
-      "id": "1a000000-0000-0000-0000-000000000007",
+      "id": "1a5b7340-3b5a-4d26-8fd2-0c40a49e4725",
       "name": "Call Claude",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1660, 220]
+      "position": [
+        448,
+        0
+      ]
     },
     {
       "parameters": {
         "jsCode": "// Extract Claude's reply text and prep the fields needed downstream.\nconst router = $('Channel Router').first().json;\nconst apiRes = $input.item.json;\n\nconst reply = (apiRes.content || [])\n  .filter(c => c.type === 'text')\n  .map(c => c.text)\n  .join('\\n\\n')\n  .trim();\n\nif (!reply) {\n  throw new Error('Empty reply from Claude — check response shape: ' + JSON.stringify(apiRes).slice(0, 500));\n}\n\nreturn [{\n  json: {\n    ...router,\n    reply,\n    // Discord caps message length at 2000 chars; truncate safely.\n    replyTruncated: reply.length > 1950 ? reply.slice(0, 1950) + '…' : reply,\n  }\n}];\n"
       },
-      "id": "1a000000-0000-0000-0000-000000000008",
+      "id": "e39f7465-11ba-458e-a156-a5bad4fabd62",
       "name": "Parse Claude Reply",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1880, 220]
+      "position": [
+        672,
+        0
+      ]
     },
     {
       "parameters": {
         "resource": "message",
-        "operation": "send",
         "guildId": "={{ $env.DISCORD_SERVER_ID }}",
         "channelId": "={{ $json.channelId }}",
         "content": "={{ $json.replyTruncated }}",
-        "options": {
-          "messageReference": "={{ $json.messageId }}"
-        }
+        "options": {}
       },
-      "id": "1a000000-0000-0000-0000-000000000009",
+      "id": "2daf24a2-e7ea-4b5e-b7ba-45c3abd30f46",
       "name": "Reply on Discord",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [2100, 220],
+      "position": [
+        880,
+        0
+      ],
+      "webhookId": "f77477f4-6cfe-4593-ba6b-5acee998810c",
       "credentials": {
         "discordBotApi": {
-          "id": "__SET_IN_N8N__",
-          "name": "Discord Bot (Bruce)"
+          "id": "om7VabWMiA8gC2i3",
+          "name": "Discord Bot account"
         }
       }
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO discord_conversations\n  (message_id, discord_user_id, channel_id, channel_name, role, content)\nVALUES\n  ($1, $2, $3, $4, 'user', $5)\nON CONFLICT (message_id) DO UPDATE\n  SET content = EXCLUDED.content;",
-        "additionalFields": {
-          "queryParams": "={{ $json.messageId }},{{ $json.userId }},{{ $json.channelId }},{{ $json.channelName }},{{ $json.content }}"
-        },
+        "query": "INSERT INTO discord_conversations\n  (message_id, discord_user_id, channel_id, channel_name, role, content)\nVALUES\n  ('{{ $json.messageId }}', '{{ $json.userId }}', '{{ $json.channelId }}', '{{ $json.channelName }}', 'user', '{{ $json.content.replace(/'/g, \"''\") }}')\nON CONFLICT (message_id) DO UPDATE\n  SET content = EXCLUDED.content;",
         "options": {}
       },
-      "id": "1a000000-0000-0000-0000-000000000010",
+      "id": "2d670e7e-ec76-46fc-af85-4b33fd000901",
       "name": "Persist User Message",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2100, 380],
+      "position": [
+        880,
+        160
+      ],
       "credentials": {
         "postgres": {
-          "id": "__SET_IN_N8N__",
-          "name": "Postgres (n8n)"
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
         }
       }
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO discord_conversations\n  (message_id, discord_user_id, channel_id, channel_name, role, content)\nVALUES\n  ($1, $2, $3, $4, 'assistant', $5)\nON CONFLICT (message_id) DO UPDATE\n  SET content = EXCLUDED.content;",
-        "additionalFields": {
-          "queryParams": "={{ 'bruce-' + $json.messageId }},{{ $env.DISCORD_BOT_USER_ID }},{{ $json.channelId }},{{ $json.channelName }},{{ $json.reply }}"
-        },
+        "query": "INSERT INTO discord_conversations\n  (message_id, discord_user_id, channel_id, channel_name, role, content)\nVALUES\n  ('{{ $json.messageId }}_reply', '{{ $json.userId }}', '{{ $json.channelId }}', '{{ $json.channelName }}', 'assistant', '{{ $json.reply.replace(/'/g, \"''\") }}')\nON CONFLICT (message_id) DO UPDATE\n  SET content = EXCLUDED.content;",
         "options": {}
       },
-      "id": "1a000000-0000-0000-0000-000000000011",
+      "id": "e5851681-e225-4d46-8f96-050d537f20b8",
       "name": "Persist Assistant Message",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2320, 380],
+      "position": [
+        1104,
+        160
+      ],
       "credentials": {
         "postgres": {
-          "id": "__SET_IN_N8N__",
-          "name": "Postgres (n8n)"
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT model FROM user_model_preferences\nWHERE discord_user_id = '{{ $json.author.id }}'\n  AND channel_id = '{{ $json.channel_id }}'\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -848,
+        80
+      ],
+      "id": "7f5129e8-6851-4e72-849f-bd4253260e64",
+      "name": "Fetch user Preference",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2bbb0193-f763-4984-a9ab-3da663d643ab",
+              "leftValue": "={{ $json.isUseCommand }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -432,
+        80
+      ],
+      "id": "69a08865-153e-4400-9a7a-00920d69c511",
+      "name": "Is /use command?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "397d7f1f-6a98-48a4-925b-c20d8b8d9639",
+              "leftValue": "={{ $json.useReset }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -208,
+        272
+      ],
+      "id": "21741b26-3253-470e-8255-6238887b90b0",
+      "name": "Is /use reset?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO user_model_preferences (discord_user_id, channel_id, model, updated_at)\nVALUES ('{{ $json.userId }}', '{{ $json.channelId }}', '{{ $json.useNewModel }}', NOW())\nON CONFLICT (discord_user_id, channel_id)\nDO UPDATE SET model = EXCLUDED.model, updated_at = NOW();",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        416
+      ],
+      "id": "32f2e1e4-8085-4f72-ab94-093b9f6307c7",
+      "name": "Save User Preference",
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM user_model_preferences\nWHERE discord_user_id = '{{ $json.userId }}'\n  AND channel_id = '{{ $json.channelId }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        208
+      ],
+      "id": "6ca661ac-ab15-4b27-b187-f06951874842",
+      "name": "Reset User Preference",
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "1495249842778148954",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Channel Router').first().json.channelId }}",
+          "mode": "id"
+        },
+        "content": "={{ $('Channel Router').first().json.useReply }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        304,
+        304
+      ],
+      "id": "96a86cd6-7f57-4ee5-8dca-a3edccba584a",
+      "name": "Reply /use Confirmation",
+      "webhookId": "49846563-670a-47fb-a4d6-d6233cf5f7b8",
+      "credentials": {
+        "discordBotApi": {
+          "id": "om7VabWMiA8gC2i3",
+          "name": "Discord Bot account"
         }
       }
     }
   ],
   "connections": {
     "Webhook (relay in)": {
-      "main": [[{ "node": "Unwrap Body", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Unwrap Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Unwrap Body": {
-      "main": [[{ "node": "Ignore Bots", "type": "main", "index": 0 }]]
-    },
-    "Ignore Bots": {
       "main": [
-        [{ "node": "Channel Router", "type": "main", "index": 0 }],
-        []
+        [
+          {
+            "node": "Fetch user Preference",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Channel Router": {
-      "main": [[{ "node": "Should Respond?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Is /use command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Should Respond?": {
       "main": [
-        [{ "node": "Fetch Conversation History", "type": "main", "index": 0 }],
-        []
+        [
+          {
+            "node": "Fetch Conversation History",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Fetch Conversation History": {
-      "main": [[{ "node": "Build Claude Request", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Build Claude Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Build Claude Request": {
-      "main": [[{ "node": "Call Claude", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Call Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Call Claude": {
-      "main": [[{ "node": "Parse Claude Reply", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Parse Claude Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Parse Claude Reply": {
-      "main": [[
-        { "node": "Reply on Discord",        "type": "main", "index": 0 },
-        { "node": "Persist User Message",    "type": "main", "index": 0 }
-      ]]
+      "main": [
+        [
+          {
+            "node": "Reply on Discord",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Persist User Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Persist User Message": {
-      "main": [[{ "node": "Persist Assistant Message", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Persist Assistant Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch user Preference": {
+      "main": [
+        [
+          {
+            "node": "Channel Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is /use command?": {
+      "main": [
+        [
+          {
+            "node": "Is /use reset?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Should Respond?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is /use reset?": {
+      "main": [
+        [
+          {
+            "node": "Reset User Preference",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save User Preference",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save User Preference": {
+      "main": [
+        [
+          {
+            "node": "Reply /use Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset User Preference": {
+      "main": [
+        [
+          {
+            "node": "Reply /use Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": false,
-  "settings": {
-    "executionOrder": "v1",
-    "saveManualExecutions": true,
-    "saveExecutionProgress": true,
-    "callerPolicy": "workflowsFromSameOwner"
-  },
   "pinData": {},
-  "tags": [
-    { "name": "discord" },
-    { "name": "bruce" }
-  ]
+  "meta": {
+    "instanceId": "e670daf30ba8fcd05bf9c59753f2436e6e3d27bb98ff4610a03b2b9a0221b27e"
+  }
 }
