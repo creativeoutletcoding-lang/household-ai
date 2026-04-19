@@ -149,6 +149,28 @@ services:
           memory: 640M
 
   # ---------------------------------------------------------------------------
+  # Discord relay — tiny Node service that holds the Gateway connection and
+  # forwards every messageCreate to the n8n webhook. Replaces the unreliable
+  # community Discord Trigger node inside n8n.
+  # ---------------------------------------------------------------------------
+  discord-relay:
+    build: ./discord-relay
+    container_name: household-discord-relay
+    restart: unless-stopped
+    networks: [household]
+    depends_on:
+      - n8n
+    environment:
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DISCORD_SERVER_ID: ${DISCORD_SERVER_ID}
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://n8n:5678/webhook/discord-bruce}
+      TZ: ${TZ:-America/Los_Angeles}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
   # Watchtower — nightly image updates for n8n / Open WebUI.
   # Optional; comment out if you'd rather pin versions and update by hand.
   # ---------------------------------------------------------------------------

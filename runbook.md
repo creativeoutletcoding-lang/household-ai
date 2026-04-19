@@ -145,19 +145,28 @@ docker compose exec postgres psql -U household -d n8n \
 
 The provisioner is idempotent — categories and channels that already exist are left alone. It's safe to re-run any time you edit `STRUCTURE` in `scripts/setup-discord-channels.js`. It will NOT modify permissions on existing categories; manual tweaks in Discord are preserved.
 
-### Discord Trigger shows as offline
+### Discord relay
 
-The Discord Trigger node in n8n maintains a persistent gateway connection. If it disappears after a container restart:
+The Gateway connection lives in the dedicated `discord-relay` container (a ~100-line Node.js service), not inside n8n. See `docs/discord-relay.md` for the full reference; common ops:
 
 ```bash
-# Restart n8n and watch the logs
-docker compose restart n8n
-docker compose logs -f n8n | grep -i discord
+# Is it running?
+docker compose ps discord-relay
+
+# Healthy start-up looks like:
+#   ... [relay] logged in as Bruce#1234 (998877...)
+#   ... [relay] forwarding messages from guild <id> -> http://n8n:5678/webhook/discord-bruce
+docker compose logs -f discord-relay
+
+# Restart after token rotation or if the logs show repeated login failures
+docker compose restart discord-relay
+
+# Rebuild after editing discord-relay/index.js
+docker compose build discord-relay
+docker compose up -d discord-relay
 ```
 
-If you see "Invalid token" or "Disallowed intents," double-check:
-- `DISCORD_BOT_TOKEN` is current (tokens are invalidated if you reset them in the Developer Portal).
-- Message Content Intent and Server Members Intent are both ON under the bot's settings.
+If messages aren't reaching n8n, walk the checklist in `docs/discord-relay.md` → "Debugging — messages aren't flowing". The two usual culprits are (1) the n8n workflow being inactive, so the webhook 404s, or (2) **Message Content Intent** being off in the Discord Developer Portal — without it, the relay receives events with empty `content` and the router has nothing to route.
 
 ### Bruce is replying in the wrong tone / with wrong context
 

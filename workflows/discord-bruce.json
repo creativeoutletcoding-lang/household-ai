@@ -3,20 +3,28 @@
   "nodes": [
     {
       "parameters": {
-        "authentication": "bot",
-        "triggerType": "messageCreate"
+        "httpMethod": "POST",
+        "path": "discord-bruce",
+        "responseMode": "onReceived",
+        "responseCode": 204,
+        "options": {}
       },
       "id": "1a000000-0000-0000-0000-000000000001",
-      "name": "Discord Trigger",
-      "type": "n8n-nodes-base.discordTrigger",
+      "name": "Webhook (relay in)",
+      "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [200, 300],
-      "credentials": {
-        "discordBotApi": {
-          "id": "__SET_IN_N8N__",
-          "name": "Discord Bot (Bruce)"
-        }
-      }
+      "webhookId": "discord-bruce"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Unwrap the webhook body so downstream nodes can read the Discord\n// payload fields at the top level — matches the shape the Channel Router\n// was originally written against.\nconst item = $input.item.json || {};\nconst body = item.body || item;\nreturn [{ json: body }];\n"
+      },
+      "id": "1a000000-0000-0000-0000-00000000000a",
+      "name": "Unwrap Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [380, 300]
     },
     {
       "parameters": {
@@ -42,17 +50,17 @@
       "name": "Ignore Bots",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [420, 300]
+      "position": [560, 300]
     },
     {
       "parameters": {
-        "jsCode": "// Channel Router\n//\n// Reads the incoming Discord message, looks up routing for the channel,\n// and decides whether Bruce should respond. Also loads the appropriate\n// persona content to be used as the Claude system prompt.\n//\n// Keep the `ROUTING` and `PERSONAS` tables in sync with:\n//   config/channel-routing.json\n//   prompts/channel-personas/*.md\n//\n// When you change a persona, edit the string literal below AND the .md\n// file in the repo, then re-save this workflow.\n\nconst ROUTING = {\n  'general':        { behavior: 'mention-only', persona: 'general' },\n  'family':         { behavior: 'mention-only', persona: 'family' },\n  'announcements':  { behavior: 'read-only',    persona: null },\n  'fig':            { behavior: 'always',       persona: 'fig' },\n  'jake-personal':  { behavior: 'always',       persona: 'jake-personal' },\n  'lake':           { behavior: 'mention-only', persona: 'lake' },\n  'cps':            { behavior: 'mention-only', persona: 'cps' },\n  'loubi-personal': { behavior: 'always',       persona: 'loubi-personal' },\n  'wis':            { behavior: 'always',       persona: 'wis' },\n  'joce-personal':  { behavior: 'always',       persona: 'joce-personal' },\n  'joce-school':    { behavior: 'always',       persona: 'joce-school' },\n  'nana-personal':  { behavior: 'always',       persona: 'nana-personal' },\n};\n\n// Short stub personas — REPLACE THESE with the real prompt text from\n// prompts/channel-personas/<slug>.md. Kept short here so the workflow JSON\n// stays under the 1 MB import ceiling. For production, paste the full\n// persona markdown between the backticks for each slug.\nconst PERSONAS = {\n  'general':        `You are Bruce in #general. See prompts/channel-personas/general.md for the full persona; paste it here.`,\n  'family':         `You are Bruce in #family. See prompts/channel-personas/family.md for the full persona; paste it here.`,\n  'fig':            `You are Bruce in #fig. See prompts/channel-personas/fig.md for the full persona; paste it here.`,\n  'jake-personal':  `You are Bruce in #jake-personal. See prompts/channel-personas/jake-personal.md for the full persona; paste it here.`,\n  'lake':           `You are Bruce in #lake. See prompts/channel-personas/lake.md for the full persona; paste it here.`,\n  'cps':            `You are Bruce in #cps. See prompts/channel-personas/cps.md for the full persona; paste it here.`,\n  'loubi-personal': `You are Bruce in #loubi-personal. See prompts/channel-personas/loubi-personal.md for the full persona; paste it here.`,\n  'wis':            `You are Bruce in #wis. See prompts/channel-personas/wis.md for the full persona; paste it here.`,\n  'joce-personal':  `You are Bruce in #joce-personal. See prompts/channel-personas/joce-personal.md for the full persona; paste it here.`,\n  'joce-school':    `You are Bruce in #joce-school. See prompts/channel-personas/joce-school.md for the full persona; paste it here.`,\n  'nana-personal':  `You are Bruce in #nana-personal. See prompts/channel-personas/nana-personal.md for the full persona; paste it here.`,\n};\n\nconst msg = $input.item.json;\n\n// Normalize the shape of the Discord payload across n8n versions.\nconst channelName = msg.channel_name || (msg.channel && msg.channel.name) || '';\nconst channelId   = msg.channel_id   || (msg.channel && msg.channel.id)   || '';\nconst messageId   = msg.id           || msg.message_id                     || '';\nconst userId      = (msg.author && msg.author.id) || msg.author_id || '';\nconst content     = msg.content || '';\nconst mentions    = (msg.mentions || []).map(m => m.id || m);\nconst botMentioned = mentions.includes($env.DISCORD_BOT_USER_ID);\nconst isReplyToBot =\n  msg.referenced_message &&\n  msg.referenced_message.author &&\n  msg.referenced_message.author.id === $env.DISCORD_BOT_USER_ID;\n\nconst route = ROUTING[channelName] || { behavior: 'read-only', persona: null };\n\nlet shouldRespond = false;\nif (route.behavior === 'always')        shouldRespond = true;\nif (route.behavior === 'mention-only')  shouldRespond = botMentioned || isReplyToBot;\nif (route.behavior === 'read-only')     shouldRespond = false;\n\nreturn [{\n  json: {\n    shouldRespond,\n    channelId,\n    channelName,\n    messageId,\n    userId,\n    content,\n    behavior: route.behavior,\n    persona: route.persona,\n    systemPrompt: route.persona ? (PERSONAS[route.persona] || '') : '',\n  }\n}];\n"
+        "jsCode": "// Channel Router\n//\n// Reads the incoming Discord message (forwarded by the discord-relay\n// container), looks up routing for the channel, and decides whether Bruce\n// should respond. Also loads the appropriate persona content to be used\n// as the Claude system prompt.\n//\n// Keep the `ROUTING` and `PERSONAS` tables in sync with:\n//   config/channel-routing.json\n//   prompts/channel-personas/*.md\n//\n// When you change a persona, edit the string literal below AND the .md\n// file in the repo, then re-save this workflow.\n\nconst ROUTING = {\n  'general':        { behavior: 'mention-only', persona: 'general' },\n  'family':         { behavior: 'mention-only', persona: 'family' },\n  'announcements':  { behavior: 'read-only',    persona: null },\n  'fig':            { behavior: 'always',       persona: 'fig' },\n  'jake-personal':  { behavior: 'always',       persona: 'jake-personal' },\n  'lake':           { behavior: 'mention-only', persona: 'lake' },\n  'cps':            { behavior: 'mention-only', persona: 'cps' },\n  'loubi-personal': { behavior: 'always',       persona: 'loubi-personal' },\n  'wis':            { behavior: 'always',       persona: 'wis' },\n  'joce-personal':  { behavior: 'always',       persona: 'joce-personal' },\n  'joce-school':    { behavior: 'always',       persona: 'joce-school' },\n  'nana-personal':  { behavior: 'always',       persona: 'nana-personal' },\n};\n\n// Short stub personas — REPLACE THESE with the real prompt text from\n// prompts/channel-personas/<slug>.md. Kept short here so the workflow JSON\n// stays under the 1 MB import ceiling. For production, paste the full\n// persona markdown between the backticks for each slug.\nconst PERSONAS = {\n  'general':        `You are Bruce in #general. See prompts/channel-personas/general.md for the full persona; paste it here.`,\n  'family':         `You are Bruce in #family. See prompts/channel-personas/family.md for the full persona; paste it here.`,\n  'fig':            `You are Bruce in #fig. See prompts/channel-personas/fig.md for the full persona; paste it here.`,\n  'jake-personal':  `You are Bruce in #jake-personal. See prompts/channel-personas/jake-personal.md for the full persona; paste it here.`,\n  'lake':           `You are Bruce in #lake. See prompts/channel-personas/lake.md for the full persona; paste it here.`,\n  'cps':            `You are Bruce in #cps. See prompts/channel-personas/cps.md for the full persona; paste it here.`,\n  'loubi-personal': `You are Bruce in #loubi-personal. See prompts/channel-personas/loubi-personal.md for the full persona; paste it here.`,\n  'wis':            `You are Bruce in #wis. See prompts/channel-personas/wis.md for the full persona; paste it here.`,\n  'joce-personal':  `You are Bruce in #joce-personal. See prompts/channel-personas/joce-personal.md for the full persona; paste it here.`,\n  'joce-school':    `You are Bruce in #joce-school. See prompts/channel-personas/joce-school.md for the full persona; paste it here.`,\n  'nana-personal':  `You are Bruce in #nana-personal. See prompts/channel-personas/nana-personal.md for the full persona; paste it here.`,\n};\n\nconst msg = $input.item.json;\n\n// Normalize the shape of the Discord payload across n8n versions.\nconst channelName = msg.channel_name || (msg.channel && msg.channel.name) || '';\nconst channelId   = msg.channel_id   || (msg.channel && msg.channel.id)   || '';\nconst messageId   = msg.id           || msg.message_id                     || '';\nconst userId      = (msg.author && msg.author.id) || msg.author_id || '';\nconst content     = msg.content || '';\nconst mentions    = (msg.mentions || []).map(m => m.id || m);\nconst botMentioned = mentions.includes($env.DISCORD_BOT_USER_ID);\nconst isReplyToBot =\n  msg.referenced_message &&\n  msg.referenced_message.author &&\n  msg.referenced_message.author.id === $env.DISCORD_BOT_USER_ID;\n\nconst route = ROUTING[channelName] || { behavior: 'read-only', persona: null };\n\nlet shouldRespond = false;\nif (route.behavior === 'always')        shouldRespond = true;\nif (route.behavior === 'mention-only')  shouldRespond = botMentioned || isReplyToBot;\nif (route.behavior === 'read-only')     shouldRespond = false;\n\nreturn [{\n  json: {\n    shouldRespond,\n    channelId,\n    channelName,\n    messageId,\n    userId,\n    content,\n    behavior: route.behavior,\n    persona: route.persona,\n    systemPrompt: route.persona ? (PERSONAS[route.persona] || '') : '',\n  }\n}];\n"
       },
       "id": "1a000000-0000-0000-0000-000000000003",
       "name": "Channel Router",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [640, 300]
+      "position": [780, 300]
     },
     {
       "parameters": {
@@ -78,7 +86,7 @@
       "name": "Should Respond?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [860, 300]
+      "position": [1000, 300]
     },
     {
       "parameters": {
@@ -93,7 +101,7 @@
       "name": "Fetch Conversation History",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1080, 220],
+      "position": [1220, 220],
       "credentials": {
         "postgres": {
           "id": "__SET_IN_N8N__",
@@ -109,7 +117,7 @@
       "name": "Build Claude Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1300, 220]
+      "position": [1440, 220]
     },
     {
       "parameters": {
@@ -134,7 +142,7 @@
       "name": "Call Claude",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1520, 220]
+      "position": [1660, 220]
     },
     {
       "parameters": {
@@ -144,7 +152,7 @@
       "name": "Parse Claude Reply",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1740, 220]
+      "position": [1880, 220]
     },
     {
       "parameters": {
@@ -161,7 +169,7 @@
       "name": "Reply on Discord",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [1960, 220],
+      "position": [2100, 220],
       "credentials": {
         "discordBotApi": {
           "id": "__SET_IN_N8N__",
@@ -182,7 +190,7 @@
       "name": "Persist User Message",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1960, 380],
+      "position": [2100, 380],
       "credentials": {
         "postgres": {
           "id": "__SET_IN_N8N__",
@@ -203,7 +211,7 @@
       "name": "Persist Assistant Message",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2180, 380],
+      "position": [2320, 380],
       "credentials": {
         "postgres": {
           "id": "__SET_IN_N8N__",
@@ -213,7 +221,10 @@
     }
   ],
   "connections": {
-    "Discord Trigger": {
+    "Webhook (relay in)": {
+      "main": [[{ "node": "Unwrap Body", "type": "main", "index": 0 }]]
+    },
+    "Unwrap Body": {
       "main": [[{ "node": "Ignore Bots", "type": "main", "index": 0 }]]
     },
     "Ignore Bots": {
@@ -254,7 +265,8 @@
   "settings": {
     "executionOrder": "v1",
     "saveManualExecutions": true,
-    "saveExecutionProgress": true
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
   },
   "pinData": {},
   "tags": [
