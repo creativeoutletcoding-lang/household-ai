@@ -4,7 +4,8 @@
  *
  * Idempotent provisioner for the Household AI Discord server.
  * Run this whenever you add a new channel/category to the config below — it
- * skips anything that already exists and only creates what's missing.
+ * skips anything that already exists, only deletes what's explicitly listed
+ * in DELETIONS, and only creates what's missing.
  *
  * Usage:
  *   cd scripts
@@ -53,17 +54,36 @@ if (!TOKEN || !GUILD_ID) {
 }
 
 // ---------------------------------------------------------------------------
+// Deletions
+//
+// Any category listed here — and all of its child text channels — are
+// deleted before the create pass runs. This is how we retire structure
+// we used to have (e.g. the shared LAKE category) without deleting
+// anything the server owner added by hand.
+// ---------------------------------------------------------------------------
+const DELETIONS = {
+  categories: ['LAKE'],
+  // Free-standing channels to delete regardless of category. Useful if a
+  // channel was moved out of its old category before deletion.
+  channels: ['lake'],
+};
+
+// ---------------------------------------------------------------------------
 // Desired structure
 //
 // For each category:
 //   name            - the visible category name (UPPERCASE convention)
-//   visibility      - "public" | "private-jake" | "private-lake" | "private-cps"
+//   visibility      - "public" | "private-jake" | "fam" | "private-cps"
 //                   | "placeholder-loubi" | "placeholder-joce" | "placeholder-nana"
 //   channels        - array of { name, announcements?: true }
 //
 // visibility decides the permission overwrites applied on the category; child
 // channels inherit them unless they have their own overrides (only the
 // `announcements` flag triggers a per-channel override today).
+//
+// Per-person #<name>-ask channels are created inside the owner's category,
+// so they inherit the same visibility — Jake sees jake-ask, Loubi sees
+// loubi-ask, etc. The bot sees all of them.
 // ---------------------------------------------------------------------------
 const STRUCTURE = [
   {
@@ -76,18 +96,20 @@ const STRUCTURE = [
     ],
   },
   {
+    name: 'FAM',
+    visibility: 'fam',
+    channels: [
+      { name: 'travel' },
+      { name: 'food' },
+    ],
+  },
+  {
     name: 'JAKE',
     visibility: 'private-jake',
     channels: [
       { name: 'fig' },
       { name: 'jake-personal' },
-    ],
-  },
-  {
-    name: 'LAKE',
-    visibility: 'private-lake',
-    channels: [
-      { name: 'lake' },
+      { name: 'jake-ask' },
     ],
   },
   {
@@ -103,6 +125,7 @@ const STRUCTURE = [
     channels: [
       { name: 'loubi-personal' },
       { name: 'wis' },
+      { name: 'loubi-ask' },
     ],
   },
   {
@@ -111,6 +134,7 @@ const STRUCTURE = [
     channels: [
       { name: 'joce-personal' },
       { name: 'joce-school' },
+      { name: 'joce-ask' },
     ],
   },
   {
@@ -118,6 +142,7 @@ const STRUCTURE = [
     visibility: 'placeholder-nana',
     channels: [
       { name: 'nana-personal' },
+      { name: 'nana-ask' },
     ],
   },
 ];
@@ -165,7 +190,8 @@ function overwritesFor(visibility, { everyoneRoleId, botUserId }) {
       }
       break;
 
-    case 'private-lake':
+    case 'fam':
+      // Jake + Loubi shared (retire-replacement for the old LAKE category).
       overwrites.push({
         id: everyoneRoleId,
         type: OverwriteType.Role,
@@ -269,8 +295,61 @@ client.once('ready', async () => {
     }
   }
 
-  let created = 0, skipped = 0;
+  let created = 0, skipped = 0, deleted = 0;
 
+  // -----------------------------------------------------------------------
+  // Deletion pass — runs before the create pass so new structure can slot
+  // into the space freed by removed categories.
+  // -----------------------------------------------------------------------
+  for (const catName of DELETIONS.categories || []) {
+    const category = existingCategories.get(catName);
+    if (!category) {
+      console.log(`=   Category absent     ${catName}  (nothing to delete)`);
+      continue;
+    }
+    // Delete child text channels first so the category can be removed cleanly.
+    for (const ch of guild.channels.cache.values()) {
+      if (ch.parentId === category.id && ch.type === ChannelType.GuildText) {
+        console.log(`-   Deleting channel    #${ch.name}  (child of ${catName})`);
+        try {
+          await ch.delete('Household AI: retiring old structure');
+          deleted++;
+          existingChannels.delete(`${category.id}:${ch.name}`);
+        } catch (e) {
+          console.error(`    ! Failed to delete #${ch.name}: ${e.message}`);
+        }
+      }
+    }
+    console.log(`- Deleting category   ${catName}`);
+    try {
+      await category.delete('Household AI: retiring old structure');
+      deleted++;
+      existingCategories.delete(catName);
+    } catch (e) {
+      console.error(`  ! Failed to delete category ${catName}: ${e.message}`);
+    }
+  }
+
+  for (const chName of DELETIONS.channels || []) {
+    // Find any text channel by name regardless of parent — catches channels
+    // that were moved out of a deleted category by hand.
+    for (const ch of guild.channels.cache.values()) {
+      if (ch.type === ChannelType.GuildText && ch.name === chName) {
+        console.log(`- Deleting channel    #${chName}`);
+        try {
+          await ch.delete('Household AI: retiring old channel');
+          deleted++;
+          existingChannels.delete(`${ch.parentId || 'none'}:${ch.name}`);
+        } catch (e) {
+          console.error(`  ! Failed to delete #${chName}: ${e.message}`);
+        }
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Create pass — idempotent; skips anything already present.
+  // -----------------------------------------------------------------------
   for (const cat of STRUCTURE) {
     let category = existingCategories.get(cat.name);
 
@@ -281,6 +360,7 @@ client.once('ready', async () => {
         type: ChannelType.GuildCategory,
         permissionOverwrites: overwritesFor(cat.visibility, ctx),
       });
+      existingCategories.set(cat.name, category);
       created++;
     } else {
       console.log(`= Category exists     ${cat.name}  (skipping create)`);
@@ -313,7 +393,7 @@ client.once('ready', async () => {
   }
 
   console.log('');
-  console.log(`Done. Created ${created}, skipped ${skipped}.`);
+  console.log(`Done. Created ${created}, deleted ${deleted}, skipped ${skipped}.`);
   client.destroy();
   process.exit(0);
 });
