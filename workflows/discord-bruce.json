@@ -1,0 +1,264 @@
+{
+  "name": "Discord — Bruce",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "bot",
+        "triggerType": "messageCreate"
+      },
+      "id": "1a000000-0000-0000-0000-000000000001",
+      "name": "Discord Trigger",
+      "type": "n8n-nodes-base.discordTrigger",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "credentials": {
+        "discordBotApi": {
+          "id": "__SET_IN_N8N__",
+          "name": "Discord Bot (Bruce)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-not-bot",
+              "leftValue": "={{ $json.author.bot }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEqual" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1a000000-0000-0000-0000-000000000002",
+      "name": "Ignore Bots",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Channel Router\n//\n// Reads the incoming Discord message, looks up routing for the channel,\n// and decides whether Bruce should respond. Also loads the appropriate\n// persona content to be used as the Claude system prompt.\n//\n// Keep the `ROUTING` and `PERSONAS` tables in sync with:\n//   config/channel-routing.json\n//   prompts/channel-personas/*.md\n//\n// When you change a persona, edit the string literal below AND the .md\n// file in the repo, then re-save this workflow.\n\nconst ROUTING = {\n  'general':        { behavior: 'mention-only', persona: 'general' },\n  'family':         { behavior: 'mention-only', persona: 'family' },\n  'announcements':  { behavior: 'read-only',    persona: null },\n  'fig':            { behavior: 'always',       persona: 'fig' },\n  'jake-personal':  { behavior: 'always',       persona: 'jake-personal' },\n  'lake':           { behavior: 'mention-only', persona: 'lake' },\n  'cps':            { behavior: 'mention-only', persona: 'cps' },\n  'loubi-personal': { behavior: 'always',       persona: 'loubi-personal' },\n  'wis':            { behavior: 'always',       persona: 'wis' },\n  'joce-personal':  { behavior: 'always',       persona: 'joce-personal' },\n  'joce-school':    { behavior: 'always',       persona: 'joce-school' },\n  'nana-personal':  { behavior: 'always',       persona: 'nana-personal' },\n};\n\n// Short stub personas — REPLACE THESE with the real prompt text from\n// prompts/channel-personas/<slug>.md. Kept short here so the workflow JSON\n// stays under the 1 MB import ceiling. For production, paste the full\n// persona markdown between the backticks for each slug.\nconst PERSONAS = {\n  'general':        `You are Bruce in #general. See prompts/channel-personas/general.md for the full persona; paste it here.`,\n  'family':         `You are Bruce in #family. See prompts/channel-personas/family.md for the full persona; paste it here.`,\n  'fig':            `You are Bruce in #fig. See prompts/channel-personas/fig.md for the full persona; paste it here.`,\n  'jake-personal':  `You are Bruce in #jake-personal. See prompts/channel-personas/jake-personal.md for the full persona; paste it here.`,\n  'lake':           `You are Bruce in #lake. See prompts/channel-personas/lake.md for the full persona; paste it here.`,\n  'cps':            `You are Bruce in #cps. See prompts/channel-personas/cps.md for the full persona; paste it here.`,\n  'loubi-personal': `You are Bruce in #loubi-personal. See prompts/channel-personas/loubi-personal.md for the full persona; paste it here.`,\n  'wis':            `You are Bruce in #wis. See prompts/channel-personas/wis.md for the full persona; paste it here.`,\n  'joce-personal':  `You are Bruce in #joce-personal. See prompts/channel-personas/joce-personal.md for the full persona; paste it here.`,\n  'joce-school':    `You are Bruce in #joce-school. See prompts/channel-personas/joce-school.md for the full persona; paste it here.`,\n  'nana-personal':  `You are Bruce in #nana-personal. See prompts/channel-personas/nana-personal.md for the full persona; paste it here.`,\n};\n\nconst msg = $input.item.json;\n\n// Normalize the shape of the Discord payload across n8n versions.\nconst channelName = msg.channel_name || (msg.channel && msg.channel.name) || '';\nconst channelId   = msg.channel_id   || (msg.channel && msg.channel.id)   || '';\nconst messageId   = msg.id           || msg.message_id                     || '';\nconst userId      = (msg.author && msg.author.id) || msg.author_id || '';\nconst content     = msg.content || '';\nconst mentions    = (msg.mentions || []).map(m => m.id || m);\nconst botMentioned = mentions.includes($env.DISCORD_BOT_USER_ID);\nconst isReplyToBot =\n  msg.referenced_message &&\n  msg.referenced_message.author &&\n  msg.referenced_message.author.id === $env.DISCORD_BOT_USER_ID;\n\nconst route = ROUTING[channelName] || { behavior: 'read-only', persona: null };\n\nlet shouldRespond = false;\nif (route.behavior === 'always')        shouldRespond = true;\nif (route.behavior === 'mention-only')  shouldRespond = botMentioned || isReplyToBot;\nif (route.behavior === 'read-only')     shouldRespond = false;\n\nreturn [{\n  json: {\n    shouldRespond,\n    channelId,\n    channelName,\n    messageId,\n    userId,\n    content,\n    behavior: route.behavior,\n    persona: route.persona,\n    systemPrompt: route.persona ? (PERSONAS[route.persona] || '') : '',\n  }\n}];\n"
+      },
+      "id": "1a000000-0000-0000-0000-000000000003",
+      "name": "Channel Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-should-respond",
+              "leftValue": "={{ $json.shouldRespond }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1a000000-0000-0000-0000-000000000004",
+      "name": "Should Respond?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT role, content, created_at\nFROM discord_conversations\nWHERE discord_user_id = $1\n  AND channel_id      = $2\nORDER BY created_at DESC\nLIMIT 20;",
+        "additionalFields": {
+          "queryParams": "={{ $json.userId }},{{ $json.channelId }}"
+        },
+        "options": {}
+      },
+      "id": "1a000000-0000-0000-0000-000000000005",
+      "name": "Fetch Conversation History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1080, 220],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the Anthropic /v1/messages request body.\n//\n// Conversation history came back newest-first from Postgres; reverse it\n// before feeding to Claude, which expects oldest-first.\n\nconst router   = $('Channel Router').first().json;\nconst rows     = $input.all().map(i => i.json).reverse();\n\nconst messages = rows\n  .filter(r => r.role === 'user' || r.role === 'assistant')\n  .map(r => ({ role: r.role, content: r.content }));\n\nmessages.push({ role: 'user', content: router.content });\n\nreturn [{\n  json: {\n    ...router,\n    requestBody: {\n      model: $env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',\n      max_tokens: 1024,\n      system: router.systemPrompt,\n      messages,\n    },\n  }\n}];\n"
+      },
+      "id": "1a000000-0000-0000-0000-000000000006",
+      "name": "Build Claude Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key",          "value": "={{ $env.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version",  "value": "2023-06-01" },
+            { "name": "content-type",       "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "1a000000-0000-0000-0000-000000000007",
+      "name": "Call Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Claude's reply text and prep the fields needed downstream.\nconst router = $('Channel Router').first().json;\nconst apiRes = $input.item.json;\n\nconst reply = (apiRes.content || [])\n  .filter(c => c.type === 'text')\n  .map(c => c.text)\n  .join('\\n\\n')\n  .trim();\n\nif (!reply) {\n  throw new Error('Empty reply from Claude — check response shape: ' + JSON.stringify(apiRes).slice(0, 500));\n}\n\nreturn [{\n  json: {\n    ...router,\n    reply,\n    // Discord caps message length at 2000 chars; truncate safely.\n    replyTruncated: reply.length > 1950 ? reply.slice(0, 1950) + '…' : reply,\n  }\n}];\n"
+      },
+      "id": "1a000000-0000-0000-0000-000000000008",
+      "name": "Parse Claude Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 220]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "guildId": "={{ $env.DISCORD_SERVER_ID }}",
+        "channelId": "={{ $json.channelId }}",
+        "content": "={{ $json.replyTruncated }}",
+        "options": {
+          "messageReference": "={{ $json.messageId }}"
+        }
+      },
+      "id": "1a000000-0000-0000-0000-000000000009",
+      "name": "Reply on Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1960, 220],
+      "credentials": {
+        "discordBotApi": {
+          "id": "__SET_IN_N8N__",
+          "name": "Discord Bot (Bruce)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO discord_conversations\n  (message_id, discord_user_id, channel_id, channel_name, role, content)\nVALUES\n  ($1, $2, $3, $4, 'user', $5)\nON CONFLICT (message_id) DO UPDATE\n  SET content = EXCLUDED.content;",
+        "additionalFields": {
+          "queryParams": "={{ $json.messageId }},{{ $json.userId }},{{ $json.channelId }},{{ $json.channelName }},{{ $json.content }}"
+        },
+        "options": {}
+      },
+      "id": "1a000000-0000-0000-0000-000000000010",
+      "name": "Persist User Message",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1960, 380],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO discord_conversations\n  (message_id, discord_user_id, channel_id, channel_name, role, content)\nVALUES\n  ($1, $2, $3, $4, 'assistant', $5)\nON CONFLICT (message_id) DO UPDATE\n  SET content = EXCLUDED.content;",
+        "additionalFields": {
+          "queryParams": "={{ 'bruce-' + $json.messageId }},{{ $env.DISCORD_BOT_USER_ID }},{{ $json.channelId }},{{ $json.channelName }},{{ $json.reply }}"
+        },
+        "options": {}
+      },
+      "id": "1a000000-0000-0000-0000-000000000011",
+      "name": "Persist Assistant Message",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2180, 380],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres (n8n)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Discord Trigger": {
+      "main": [[{ "node": "Ignore Bots", "type": "main", "index": 0 }]]
+    },
+    "Ignore Bots": {
+      "main": [
+        [{ "node": "Channel Router", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Channel Router": {
+      "main": [[{ "node": "Should Respond?", "type": "main", "index": 0 }]]
+    },
+    "Should Respond?": {
+      "main": [
+        [{ "node": "Fetch Conversation History", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Fetch Conversation History": {
+      "main": [[{ "node": "Build Claude Request", "type": "main", "index": 0 }]]
+    },
+    "Build Claude Request": {
+      "main": [[{ "node": "Call Claude", "type": "main", "index": 0 }]]
+    },
+    "Call Claude": {
+      "main": [[{ "node": "Parse Claude Reply", "type": "main", "index": 0 }]]
+    },
+    "Parse Claude Reply": {
+      "main": [[
+        { "node": "Reply on Discord",        "type": "main", "index": 0 },
+        { "node": "Persist User Message",    "type": "main", "index": 0 }
+      ]]
+    },
+    "Persist User Message": {
+      "main": [[{ "node": "Persist Assistant Message", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  },
+  "pinData": {},
+  "tags": [
+    { "name": "discord" },
+    { "name": "bruce" }
+  ]
+}

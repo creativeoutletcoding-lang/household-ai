@@ -81,6 +81,88 @@ sudo systemctl reload caddy
 
 The n8n workflow checks `TELEGRAM_ALLOWED_USER_IDS` on every incoming message and silently drops anything from an unknown sender.
 
+**Discord:**
+
+1. The person joins the server via the invite link.
+2. Right-click their name → Copy User ID. Paste into `.env` as `DISCORD_<NAME>_USER_ID` (e.g. `DISCORD_LOUBI_USER_ID=...`).
+3. In Discord: right-click the categories they should access (their own placeholder category, plus any shared like `LAKE` / `CPS` if relevant) → Edit Category → Permissions → Add Member → grant **View Channel**, **Send Messages**, **Read Message History**.
+4. `docker compose up -d n8n` to pick up the env var change.
+
+No need to re-run the channel provisioner for this — it only creates channels/categories that are missing, and deliberately won't touch permissions on existing ones.
+
+## Discord operations
+
+### Add a new Discord channel
+
+Four small steps:
+
+```bash
+# 1. Edit the provisioner's STRUCTURE or add the channel manually in Discord.
+$EDITOR scripts/setup-discord-channels.js
+(cd scripts && node setup-discord-channels.js)
+
+# 2. Write a persona.
+$EDITOR prompts/channel-personas/<slug>.md
+
+# 3. Route the channel.
+$EDITOR config/channel-routing.json
+# Add:   "<slug>": { "behavior": "always" | "mention-only" | "read-only", "persona": "<slug>.md" }
+```
+
+Then in n8n: open the **Discord — Bruce** workflow, edit the **Channel Router** Code node, add matching entries in `ROUTING` and `PERSONAS`, save. Activate if not active.
+
+Until the Code node is updated, the new channel defaults to `read-only` and Bruce stays silent in it.
+
+### Modify a persona
+
+```bash
+$EDITOR prompts/channel-personas/<slug>.md
+```
+
+Then in n8n, open the Discord — Bruce workflow → **Channel Router** node → paste the updated content into the `PERSONAS` entry for that slug → save. No restart needed.
+
+### Clean up orphaned Discord conversation history
+
+```bash
+# Drop all conversation history for a removed channel
+docker compose exec postgres psql -U household -d n8n \
+  -c "DELETE FROM discord_conversations WHERE channel_name = '<slug>';"
+
+# Drop everything older than 180 days
+docker compose exec postgres psql -U household -d n8n \
+  -c "DELETE FROM discord_conversations WHERE created_at < now() - interval '180 days';"
+
+# Reset history for one user in one channel (e.g. to let them "start fresh")
+docker compose exec postgres psql -U household -d n8n \
+  -c "DELETE FROM discord_conversations WHERE discord_user_id = '<user_id>' AND channel_name = '<slug>';"
+
+# How much history do we have?
+docker compose exec postgres psql -U household -d n8n \
+  -c "SELECT channel_name, COUNT(*) FROM discord_conversations GROUP BY 1 ORDER BY 2 DESC;"
+```
+
+### Re-run the channel provisioner safely
+
+The provisioner is idempotent — categories and channels that already exist are left alone. It's safe to re-run any time you edit `STRUCTURE` in `scripts/setup-discord-channels.js`. It will NOT modify permissions on existing categories; manual tweaks in Discord are preserved.
+
+### Discord Trigger shows as offline
+
+The Discord Trigger node in n8n maintains a persistent gateway connection. If it disappears after a container restart:
+
+```bash
+# Restart n8n and watch the logs
+docker compose restart n8n
+docker compose logs -f n8n | grep -i discord
+```
+
+If you see "Invalid token" or "Disallowed intents," double-check:
+- `DISCORD_BOT_TOKEN` is current (tokens are invalidated if you reset them in the Developer Portal).
+- Message Content Intent and Server Members Intent are both ON under the bot's settings.
+
+### Bruce is replying in the wrong tone / with wrong context
+
+Open the workflow → Channel Router node → compare the `PERSONAS` entry for that channel with `prompts/channel-personas/<slug>.md`. If they've drifted, paste the file content into the Code node and save.
+
 ## Backup
 
 Backups cover two things: the Postgres databases (conversation history, n8n workflows, Open WebUI state) and the Docker named volumes (uploaded files, n8n encryption key, etc.).

@@ -1,0 +1,16 @@
+{
+  "name": "household-ai-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Operational scripts for Household AI (Discord provisioning, etc.)",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "setup-discord": "node setup-discord-channels.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "general":         { "behavior": "mention-only", "persona": "general.md" },
+  "family":          { "behavior": "mention-only", "persona": "family.md" },
+  "announcements":   { "behavior": "read-only",    "persona": null },
+  "fig":             { "behavior": "always",       "persona": "fig.md" },
+  "jake-personal":   { "behavior": "always",       "persona": "jake-personal.md" },
+  "lake":            { "behavior": "mention-only", "persona": "lake.md" },
+  "cps":             { "behavior": "mention-only", "persona": "cps.md" },
+  "loubi-personal":  { "behavior": "always",       "persona": "loubi-personal.md" },
+  "wis":             { "behavior": "always",       "persona": "wis.md" },
+  "joce-personal":   { "behavior": "always",       "persona": "joce-personal.md" },
+  "joce-school":     { "behavior": "always",       "persona": "joce-school.md" },
+  "nana-personal":   { "behavior": "always",       "persona": "nana-personal.md" }
+}
