@@ -1,0 +1,82 @@
+{
+  "name": "Perplexity — Search API",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "perplexity-search",
+        "options": {}
+      },
+      "id": "8a111111-1111-1111-1111-111111111111",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-800, 0],
+      "webhookId": "perplexity-search"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Minimal JSON body:\n//   POST /webhook/perplexity-search\n//   { \"query\": \"<question>\", \"model\": \"sonar\"? }\n// Returns: { answer, citations, raw }\nconst body = ($input.item.json.body) || $input.item.json;\nconst query = (body.query || '').trim();\nif (!query) {\n  throw new Error('Missing required field \"query\".');\n}\nconst model = body.model || 'sonar';\nreturn [{ json: { query, model } }];"
+      },
+      "id": "8a222222-2222-2222-2222-222222222222",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-608, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.perplexity.ai/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.PERPLEXITY_API_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $json.model, messages: [{ role: 'user', content: $json.query }], return_citations: true }) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "8a333333-3333-3333-3333-333333333333",
+      "name": "Call Perplexity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-384, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize the Perplexity response.\nconst res = $input.item.json;\nlet answer = '';\ntry { answer = res.choices[0].message.content || ''; } catch (_) {}\nconst citations = Array.isArray(res.citations) ? res.citations : [];\nreturn [{ json: { answer, citations, raw: res } }];"
+      },
+      "id": "8a444444-4444-4444-4444-444444444444",
+      "name": "Format Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-160, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ answer: $json.answer, citations: $json.citations }) }}",
+        "options": {}
+      },
+      "id": "8a555555-5555-5555-5555-555555555555",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [64, 0]
+    }
+  ],
+  "connections": {
+    "Webhook":        { "main": [[{ "node": "Validate Input",  "type": "main", "index": 0 }]] },
+    "Validate Input": { "main": [[{ "node": "Call Perplexity", "type": "main", "index": 0 }]] },
+    "Call Perplexity":{ "main": [[{ "node": "Format Reply",    "type": "main", "index": 0 }]] },
+    "Format Reply":   { "main": [[{ "node": "Respond",         "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "e670daf30ba8fcd05bf9c59753f2436e6e3d27bb98ff4610a03b2b9a0221b27e"
+  }
+}

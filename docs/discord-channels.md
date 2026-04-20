@@ -52,6 +52,15 @@ Bruce's per-channel personas (`prompts/channel-personas/`) include explicit inst
 - Conversation memory is keyed on `(discord_user_id, channel_id)` in Postgres — so Jake's history in `#jake-personal` is distinct from his history in `#lake`, even though both are "Jake." This prevents context crossover even within the same person.
 - The `#announcements` channel is `read-only` in `config/channel-routing.json`, meaning Bruce never responds there. Posting rights are a separate (Discord-level) constraint.
 
+## Threads
+
+Bruce supports Discord threads with a few deliberate rules:
+
+- **Routing/persona inherits from the parent channel.** A thread inside `#jake-personal` uses the `jake-personal` persona. The `discord-relay` container rewrites the inbound payload so the workflow's Channel Router sees the parent channel's name, even though the user posted in the thread.
+- **Memory is scoped to the thread.** Conversation history (`discord_conversations`) and long-term memories (`user_memories`) keyed off a thread stay inside that thread. Messages in the parent channel don't pollute thread context, and thread side-conversations don't leak back into the main channel's history.
+- **Auto-join.** The relay listens for `threadCreate` and joins every new thread in the guild, so Bruce receives messages without being invited by hand. For private threads created before the relay was upgraded, add him once manually.
+- **`/image` and `/search`** work inside threads too; the reply is posted to the thread it was asked in.
+
 ## Adding a new channel later
 
 Three steps, any order:

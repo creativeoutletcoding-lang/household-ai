@@ -86,15 +86,27 @@ services:
       # --- encryption key for stored credentials (do NOT change after first run) ---
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
 
-      # --- pass Claude key through to workflows ---
+      # --- pass third-party API keys through to workflows ---
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN}
+      PERPLEXITY_API_KEY: ${PERPLEXITY_API_KEY}
+      # Bruce's image-reply node calls Discord's REST API directly, so the
+      # raw bot token has to be available inside n8n (not just to the relay).
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+
+      # --- Discord identity (the Bruce workflow reads this to detect mentions) ---
+      DISCORD_SERVER_ID: ${DISCORD_SERVER_ID}
+      DISCORD_BOT_USER_ID: ${DISCORD_BOT_USER_ID}
 
       # --- runtime ---
       GENERIC_TIMEZONE: ${TZ:-America/Los_Angeles}
       N8N_LOG_LEVEL: info
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      # Default is already false; pin it so Code/HTTP nodes can read
+      # $env.ANTHROPIC_API_KEY, $env.REPLICATE_API_TOKEN, etc.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       EXECUTIONS_DATA_PRUNE: "true"
       EXECUTIONS_DATA_MAX_AGE: "336"      # 14 days
     volumes:

@@ -6,7 +6,7 @@
 //
 // Replaces the n8n community Discord Trigger node, which was unreliable.
 
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Events, ChannelType } = require('discord.js');
 
 const {
   DISCORD_BOT_TOKEN,
@@ -27,9 +27,17 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.MessageContent,
   ],
 });
+
+// Channel types that represent threads (not forum/standalone channels).
+const THREAD_TYPES = new Set([
+  ChannelType.PublicThread,
+  ChannelType.PrivateThread,
+  ChannelType.AnnouncementThread,
+]);
 
 async function buildReferencedMessage(message) {
   if (!message.reference || !message.reference.messageId) return null;
@@ -52,6 +60,17 @@ async function buildReferencedMessage(message) {
 }
 
 function buildPayload(message, referenced_message) {
+  const channel = message.channel;
+  const isThread = channel ? THREAD_TYPES.has(channel.type) : false;
+
+  // For threads, the routing/persona lives on the PARENT channel (e.g. a
+  // thread inside #jake-personal should use jake-personal's persona). We
+  // still forward the thread's own id/name so n8n can scope memory to the
+  // thread.
+  const parent = isThread ? channel.parent : null;
+  const routingChannelId = isThread && parent ? parent.id : message.channelId;
+  const routingChannelName = isThread && parent ? parent.name : (channel?.name ?? '');
+
   return {
     id: message.id,
     content: message.content,
@@ -60,9 +79,12 @@ function buildPayload(message, referenced_message) {
       username: message.author.username,
       bot: message.author.bot === true,
     },
-    channel_id: message.channelId,
-    channel_name: message.channel?.name ?? '',
+    channel_id: routingChannelId,
+    channel_name: routingChannelName,
     guild_id: message.guildId ?? '',
+    is_thread: isThread,
+    thread_id: isThread ? channel.id : '',
+    thread_name: isThread ? (channel.name ?? '') : '',
     mentions: [...message.mentions.users.values()].map((u) => ({ id: u.id })),
     referenced_message,
   };
@@ -98,6 +120,23 @@ client.on(Events.MessageCreate, async (message) => {
     await postToWebhook(payload);
   } catch (err) {
     log(`handler error for msg ${message?.id}: ${err.stack || err.message}`);
+  }
+});
+
+// Auto-join any thread created in the guild — without this, the bot never
+// receives messageCreate events inside private threads it wasn't added to
+// (and even public threads won't deliver reliably until the bot is a member).
+client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
+  try {
+    if (thread.guildId !== DISCORD_SERVER_ID) return;
+    if (thread.joined) return;
+    await thread.join();
+    log(
+      `joined thread #${thread.name} (${thread.id}) in parent #${thread.parent?.name ?? '?'}` +
+        (newlyCreated ? ' [new]' : '')
+    );
+  } catch (err) {
+    log(`failed to join thread ${thread?.id}: ${err.message}`);
   }
 });
 

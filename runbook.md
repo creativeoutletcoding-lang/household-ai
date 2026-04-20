@@ -168,6 +168,35 @@ docker compose up -d discord-relay
 
 If messages aren't reaching n8n, walk the checklist in `docs/discord-relay.md` → "Debugging — messages aren't flowing". The two usual culprits are (1) the n8n workflow being inactive, so the webhook 404s, or (2) **Message Content Intent** being off in the Discord Developer Portal — without it, the relay receives events with empty `content` and the router has nothing to route.
 
+### In-Discord commands
+
+These are typed directly in any Discord channel where Bruce is listening. They run through the Channel Router in the Bruce workflow; no n8n access needed.
+
+- `/use <model>` — switch the Claude model Bruce uses for *you in this channel*. Shortcuts: `haiku`, `sonnet`, `opus` (= `claude-opus-4-7`), `opus6` (= `claude-opus-4-6`). Or pass a full model string.
+- `/use default` — clear your override and go back to the channel's default model.
+- `/remember <text>` — store a long-term memory for yourself in this channel (or thread). Bruce injects these into the system prompt on every reply there.
+- `/forget <id>` — delete one memory. Run `/memories` first to see IDs.
+- `/memories` — list all of your saved memories.
+- `/image <prompt>` — render an image with Replicate's Flux Schnell (fast).
+- `/image --hd <prompt>` — render with Flux Pro (slower, higher quality).
+- `/search <query>` — web search via Perplexity; returns an answer plus citations.
+
+Per-user model preferences live in `user_model_preferences`; long-term memories live in `user_memories`. Both tables are in the `n8n` database and are safe to inspect/edit by hand:
+
+```bash
+docker compose exec postgres psql -U household -d n8n \
+  -c "SELECT * FROM user_model_preferences ORDER BY updated_at DESC LIMIT 20;"
+
+docker compose exec postgres psql -U household -d n8n \
+  -c "SELECT id, discord_user_id, scope, channel_name, content FROM user_memories ORDER BY created_at DESC LIMIT 20;"
+```
+
+### Threads
+
+Bruce responds inside Discord threads using the *parent channel's* persona and routing (a thread inside `#jake-personal` uses the `jake-personal` persona). Conversation history and `/remember` memories are scoped to the thread — so side-conversations don't pollute the main channel's memory and vice versa.
+
+The `discord-relay` container auto-joins every thread it sees. If Bruce doesn't respond inside a thread you created before the relay was upgraded, add him manually once (right-click the thread → Invite Members → pick Bruce) and he'll stay from then on.
+
 ### Bruce is replying in the wrong tone / with wrong context
 
 Open the workflow → Channel Router node → compare the `PERSONAS` entry for that channel with `prompts/channel-personas/<slug>.md`. If they've drifted, paste the file content into the Code node and save.
