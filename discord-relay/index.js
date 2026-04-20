@@ -86,6 +86,12 @@ function buildPayload(message, referenced_message) {
     thread_id: isThread ? channel.id : '',
     thread_name: isThread ? (channel.name ?? '') : '',
     mentions: [...message.mentions.users.values()].map((u) => ({ id: u.id })),
+    attachments: [...message.attachments.values()].map((a) => ({
+      url: a.url,
+      filename: a.filename,
+      content_type: a.contentType ?? 'application/octet-stream',
+      size: a.size,
+    })),
     referenced_message,
   };
 }
