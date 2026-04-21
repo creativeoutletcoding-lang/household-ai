@@ -195,33 +195,6 @@ services:
           memory: 256M
 
   # ---------------------------------------------------------------------------
-  # Skylight MCP — Model Context Protocol server that backs Bruce's calendar
-  # tools. Signs in to the family Skylight Frame account on startup and
-  # exposes list/create/update/delete event tools over HTTP (JSON-RPC) on
-  # port 3000. Only reachable over the `household` docker network — n8n
-  # calls it as http://household-skylight-mcp:3000/mcp.
-  #
-  # The image is a thin wrapper defined in ./skylight-mcp/Dockerfile that
-  # pre-installs @eaglebyte/skylight-mcp globally so container restart is
-  # fast (no `npx` cold-start pulling the package from npm every time).
-  # ---------------------------------------------------------------------------
-  skylight-mcp:
-    build: ./skylight-mcp
-    container_name: household-skylight-mcp
-    restart: unless-stopped
-    networks: [household]
-    environment:
-      SKYLIGHT_EMAIL: ${SKYLIGHT_EMAIL}
-      SKYLIGHT_PASSWORD: ${SKYLIGHT_PASSWORD}
-      SKYLIGHT_FRAME_ID: ${SKYLIGHT_FRAME_ID}
-      SKYLIGHT_TIMEZONE: ${SKYLIGHT_TIMEZONE:-America/New_York}
-      TZ: ${TZ:-America/Los_Angeles}
-    deploy:
-      resources:
-        limits:
-          memory: 192M
-
-  # ---------------------------------------------------------------------------
   # Watchtower — nightly image updates for n8n / Open WebUI.
   # Optional; comment out if you'd rather pin versions and update by hand.
   # ---------------------------------------------------------------------------

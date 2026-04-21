@@ -201,113 +201,55 @@ The `discord-relay` container auto-joins every thread it sees. If Bruce doesn't 
 
 Open the workflow → Channel Router node → compare the `PERSONAS` entry for that channel with `prompts/channel-personas/<slug>.md`. If they've drifted, paste the file content into the Code node and save.
 
-## Calendar (Skylight MCP)
+## Calendar (Skylight Direct API)
 
-Bruce reads and writes the family Skylight Frame calendar through the
-`household-skylight-mcp` container — a small wrapper around the
-[`@eaglebyte/skylight-mcp`](https://www.npmjs.com/package/@eaglebyte/skylight-mcp)
-Model Context Protocol server, built from `./skylight-mcp/Dockerfile` and
-running on the same `household` Docker network as n8n.
+Bruce reads and writes the family Skylight Frame calendar via **direct HTTP
+calls** from n8n Code/HTTP nodes. There is no MCP sidecar container.
 
-### Service overview
+### Architecture
 
-| Property       | Value                                                              |
-| -------------- | ------------------------------------------------------------------ |
-| Container name | `household-skylight-mcp`                                           |
-| Build context  | `./skylight-mcp`                                                   |
-| Base image     | `node:20-alpine` (pre-installs `@eaglebyte/skylight-mcp` globally) |
-| Network        | `household`                                                        |
-| Internal URL   | `http://household-skylight-mcp:3000/mcp`                           |
-| Env vars       | `SKYLIGHT_EMAIL`, `SKYLIGHT_PASSWORD`, `SKYLIGHT_FRAME_ID`, `SKYLIGHT_TIMEZONE` |
+The `/calendar` command branch in `workflows/discord-bruce.json` has four nodes:
 
-The container is **not** published on any host port. n8n reaches it by its
-compose DNS name over the `household` network.
+| Node | Type | Purpose |
+|---|---|---|
+| Build Skylight Request | Code | Parse `/calendar` arg; detect operation (list/add/remove/update) |
+| Authenticate Skylight | Code | OAuth login; token cached in `$workflow.staticData` |
+| Call Skylight API | HTTP Request | Direct endpoint call using access token |
+| Parse Skylight Reply | Code | Format response for Discord (emoji, date/time) |
 
-### How n8n calls it
+### Required env vars
 
-The `calendar` branch in `workflows/discord-bruce.json` uses an **HTTP
-Request** node pointed at `http://household-skylight-mcp:3000/mcp` with an
-MCP JSON-RPC 2.0 body. Example shape for listing the next 7 days:
+All four must be set in `.env` **and** mapped in the n8n `environment:` block in `docker-compose.yml`. `N8N_BLOCK_ENV_ACCESS_IN_NODE` must be `"false"`.
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "tools/call",
-  "params": {
-    "name": "list_events",
-    "arguments": {
-      "frame_id": "{{ $env.SKYLIGHT_FRAME_ID }}",
-      "start": "{{ $now.toISO() }}",
-      "end":   "{{ $now.plus({ days: 7 }).toISO() }}"
-    }
-  }
-}
-```
+| Var | Description |
+|---|---|
+| `SKYLIGHT_EMAIL` | Skylight account email |
+| `SKYLIGHT_PASSWORD` | Skylight account password |
+| `SKYLIGHT_FRAME_ID` | Frame ID from Skylight web portal |
+| `SKYLIGHT_TIMEZONE` | IANA timezone (default: `America/New_York`) |
+
+### Auth flow (Authenticate Skylight node)
+
+1. Check `$workflow.staticData.skylightToken` and `.skylightTokenExpiry`
+2. If token is valid, return it immediately
+3. Otherwise POST credentials to Skylight OAuth endpoint
+4. Store token + expiry in `$workflow.staticData`
+5. On 401 from Call Skylight API: clear `staticData` and re-authenticate
 
 ### In-Discord `/calendar` command
 
-Typed in any channel where Bruce is listening:
-
-- `/calendar` — list the next 7 days of events (default).
-- `/calendar list [N]` — list the next N days (defaults to 7, max 30).
-- `/calendar add <description>` — create an event from a natural-language
-  description. Best on the first pass if you include an ISO-ish date/time
-  (e.g. `/calendar add Dentist Tuesday 3pm`).
-- `/calendar remove <id>` — delete an event by ID (run `/calendar` first to
-  see IDs).
-
-> The exact tool names and argument schemas come from the running MCP
-> server. Pin them once after first boot by calling `tools/list`:
->
-> ```bash
-> docker compose exec n8n wget -qO- \
->   --header='Content-Type: application/json' \
->   --post-data='{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
->   http://household-skylight-mcp:3000/mcp
-> ```
->
-> If the tool names in this stack's JSON differ from yours (`listEvents`
-> vs `list_events`, etc.), update `Build Skylight Request` in the Bruce
-> workflow to match.
-
-### Operational checks
-
-```bash
-# Is the container up?
-docker compose ps skylight-mcp
-
-# Tail logs (auth failures and frame-ID mismatches surface here)
-docker compose logs -f skylight-mcp
-
-# From inside n8n, confirm DNS + reachability:
-docker compose exec n8n wget -qO- \
-  --header='Content-Type: application/json' \
-  --post-data='{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
-  http://household-skylight-mcp:3000/mcp
-
-# Rebuild after bumping @eaglebyte/skylight-mcp in skylight-mcp/package.json
-docker compose build skylight-mcp
-docker compose up -d skylight-mcp
-```
+- `/calendar` or `/calendar list` — list events for the frame
+- `/calendar add <description>` — create an event (include date/time in description)
+- `/calendar remove <id>` — delete event by ID (run `/calendar` first to see IDs)
+- `/calendar update <id> <changes>` — update an event
 
 ### Known failure modes
 
-- **Auth errors on startup** — wrong `SKYLIGHT_EMAIL` / `SKYLIGHT_PASSWORD`,
-  or the Skylight account was signed out. Fix `.env`, then
-  `docker compose up -d --force-recreate skylight-mcp`.
-- **Events land on the wrong frame** — `SKYLIGHT_FRAME_ID` mismatch. Verify
-  the ID in the Skylight web portal or via the MCP server's `list_frames`
-  tool if it exposes one.
-- **Times off by a day or in the wrong zone** — `SKYLIGHT_TIMEZONE` unset
-  or not a valid IANA name. Stick to `America/New_York` unless explicitly
-  changed (the default in `.env.example`).
-- **`/calendar` replies with a JSON error blob** — the MCP server returned
-  a JSON-RPC error. The `Parse Skylight Reply` code node surfaces the raw
-  message; common cause is a tool name drift (see `tools/list` check above).
-- **Workflow timing out** — the HTTP Request node has a 60s timeout; if the
-  first call is slow (cold start + Skylight login), just rerun. If it keeps
-  timing out, bounce the container.
+- **Auth errors** — wrong `SKYLIGHT_EMAIL` / `SKYLIGHT_PASSWORD` in `.env`. Verify and restart n8n: `docker compose up -d n8n`.
+- **Events land on the wrong frame** — `SKYLIGHT_FRAME_ID` mismatch. Check the Skylight web portal for the correct frame ID.
+- **Times off by a day or in the wrong zone** — `SKYLIGHT_TIMEZONE` unset or not a valid IANA name. Default is `America/New_York`.
+- **Stale token errors** — the Authenticate Skylight node's `$workflow.staticData` may hold an expired token. Deactivate and reactivate the workflow to clear static data.
+- **`/calendar` env vars not visible** — ensure `N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"` is set in `docker-compose.yml` and n8n has been restarted.
 
 ## Backup
 
