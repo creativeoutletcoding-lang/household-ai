@@ -39,6 +39,19 @@ const THREAD_TYPES = new Set([
   ChannelType.AnnouncementThread,
 ]);
 
+// Short-lived set of thread IDs that were just created. We drop messageCreate
+// events inside these threads for the TTL window so we don't relay the
+// "starter" message of a freshly created thread (Discord has no per-message
+// signal for this — the message looks identical to any later message — so we
+// key off the ThreadCreate event instead).
+const RECENT_THREAD_TTL_MS = 5000;
+const recentlyCreatedThreads = new Set();
+function markThreadRecentlyCreated(threadId) {
+  if (!threadId) return;
+  recentlyCreatedThreads.add(threadId);
+  setTimeout(() => recentlyCreatedThreads.delete(threadId), RECENT_THREAD_TTL_MS).unref?.();
+}
+
 async function buildReferencedMessage(message) {
   if (!message.reference || !message.reference.messageId) return null;
   try {
@@ -121,6 +134,22 @@ client.on(Events.MessageCreate, async (message) => {
     if (message.author?.bot) return;
     if (message.guildId !== DISCORD_SERVER_ID) return;
 
+    // Drop Discord system messages (thread-created notices, pin announcements,
+    // member joins, etc.) — we never want to relay these to n8n.
+    if (message.system) return;
+
+    // Drop the starter message of a freshly created thread. Discord doesn't
+    // mark the message itself, so we cross-reference the TTL set populated by
+    // the ThreadCreate handler below.
+    const channel = message.channel;
+    if (
+      channel &&
+      THREAD_TYPES.has(channel.type) &&
+      recentlyCreatedThreads.has(channel.id)
+    ) {
+      return;
+    }
+
     const referenced_message = await buildReferencedMessage(message);
     const payload = buildPayload(message, referenced_message);
     await postToWebhook(payload);
@@ -135,6 +164,12 @@ client.on(Events.MessageCreate, async (message) => {
 client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
   try {
     if (thread.guildId !== DISCORD_SERVER_ID) return;
+
+    // Mark the thread as recently created so messageCreate can suppress the
+    // starter message. Always mark (even if we don't need to join), so that
+    // thread-start messages are filtered consistently.
+    markThreadRecentlyCreated(thread.id);
+
     if (thread.joined) return;
     await thread.join();
     log(

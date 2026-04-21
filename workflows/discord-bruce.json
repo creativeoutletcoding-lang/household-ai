@@ -11,7 +11,10 @@
       "name": "Webhook (relay in)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-1680, 80],
+      "position": [
+        -1680,
+        80
+      ],
       "webhookId": "discord-bruce"
     },
     {
@@ -22,18 +25,29 @@
       "name": "Unwrap Body",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-1504, 80]
+      "position": [
+        -1504,
+        80
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 3 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
           "conditions": [
             {
               "id": "has-attachments",
               "leftValue": "={{ ($json.attachments || []).length }}",
               "rightValue": 0,
-              "operator": { "type": "number", "operation": "gt" }
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
             }
           ],
           "combinator": "and"
@@ -44,7 +58,10 @@
       "name": "Has Attachments",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
-      "position": [-1440, -80]
+      "position": [
+        -1440,
+        -80
+      ]
     },
     {
       "parameters": {
@@ -56,7 +73,10 @@
       "name": "Split Attachments",
       "type": "n8n-nodes-base.itemLists",
       "typeVersion": 3.1,
-      "position": [-1280, -240]
+      "position": [
+        -1280,
+        -240
+      ]
     },
     {
       "parameters": {
@@ -75,7 +95,10 @@
       "name": "Fetch Attachment",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-1120, -240],
+      "position": [
+        -1120,
+        -240
+      ],
       "alwaysOutputData": true
     },
     {
@@ -86,7 +109,10 @@
       "name": "Convert to Content Blocks",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-960, -240]
+      "position": [
+        -960,
+        -240
+      ]
     },
     {
       "parameters": {
@@ -107,7 +133,10 @@
       "name": "Inject Empty Content Blocks",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [-1440, 240]
+      "position": [
+        -1440,
+        240
+      ]
     },
     {
       "parameters": {
@@ -118,7 +147,10 @@
       "name": "Merge Attachment Branches",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
-      "position": [-800, 80]
+      "position": [
+        -800,
+        80
+      ]
     },
     {
       "parameters": {
@@ -128,7 +160,10 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [-1312, 80],
+      "position": [
+        -1312,
+        80
+      ],
       "id": "7f5129e8-6851-4e72-849f-bd4253260e64",
       "name": "Fetch user Preference",
       "alwaysOutputData": true,
@@ -141,13 +176,16 @@
     },
     {
       "parameters": {
-        "jsCode": "// ---------------------------------------------------------------------------\n// Channel Router\n//\n// Reads the incoming Discord message (from discord-relay via Unwrap Body),\n// detects slash-style commands, decides whether Bruce should respond, and\n// chooses which Claude model to call.\n//\n// Commands detected (set on output.commandType):\n//   /use <model|default>        → 'use'       — per-user model override\n//   /remember <text>            → 'remember'  — add long-term memory\n//   /forget <id>                → 'forget'    — delete one memory by id\n//   /memories                   → 'memories'  — list this user's memories\n//   /image <prompt>             → 'image'     — generate an image via Replicate\n//   /search <query>             → 'search'    — web search via Perplexity\n// Anything else → commandType = 'none' and the normal Claude pipeline runs.\n//\n// Threads: if the incoming payload has is_thread=true, memory is scoped to\n// (user, thread_id). Otherwise scoped to (user, channel_id). Persona + routing\n// still come from the parent channel name (discord-relay already maps that).\n//\n// Keep ROUTING in sync with config/channel-routing.json.\n// ---------------------------------------------------------------------------\n\n// Hardcoded IDs — these don't change per-env and pinning them here avoids\n// a whole class of \"why didn't Bruce answer?\" bugs caused by empty env vars.\nconst BOT_USER_ID  = '1495252972026859520';\nconst GUILD_ID     = '1495249842778148954';\n\nconst DEFAULT_MODEL = 'claude-sonnet-4-6';\n\n// Short aliases users can type with /use <alias>.\nconst MODEL_SHORTCUTS = {\n  haiku:  'claude-haiku-4-5-20251001',\n  sonnet: 'claude-sonnet-4-6',\n  opus:   'claude-opus-4-7',\n  opus6:  'claude-opus-4-6',\n};\n\nconst ROUTING = {\n  'general':        { behavior: 'mention-only', persona: 'general',        model: 'claude-haiku-4-5-20251001' },\n  'family':         { behavior: 'mention-only', persona: 'family',         model: 'claude-sonnet-4-6' },\n  'announcements':  { behavior: 'read-only',    persona: null,             model: null },\n  'fig':            { behavior: 'always',       persona: 'fig',            model: 'claude-sonnet-4-6' },\n  'jake-personal':  { behavior: 'always',       persona: 'jake-personal',  model: 'claude-sonnet-4-6' },\n  'jake-ask':       { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001' },\n  'travel':         { behavior: 'mention-only', persona: 'travel',         model: 'claude-sonnet-4-6' },\n  'food':           { behavior: 'mention-only', persona: 'food',           model: 'claude-sonnet-4-6' },\n  'cps':            { behavior: 'mention-only', persona: 'cps',            model: 'claude-sonnet-4-6' },\n  'loubi-personal': { behavior: 'always',       persona: 'loubi-personal', model: 'claude-sonnet-4-6' },\n  'wis':            { behavior: 'always',       persona: 'wis',            model: 'claude-sonnet-4-6' },\n  'loubi-ask':      { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001' },\n  'joce-personal':  { behavior: 'always',       persona: 'joce-personal',  model: 'claude-sonnet-4-6' },\n  'joce-school':    { behavior: 'always',       persona: 'joce-school',    model: 'claude-sonnet-4-6' },\n  'joce-ask':       { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001' },\n  'nana-personal':  { behavior: 'always',       persona: 'nana-personal',  model: 'claude-sonnet-4-6' },\n  'nana-ask':       { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001' },\n};\n\n// Short stub personas. REPLACE each string with the full content of the\n// matching prompts/channel-personas/<slug>.md file if/when you update them.\nconst PERSONAS = {\n  'general': `You are Bruce, the household's shared AI assistant. You're speaking in the \\`#general\\` channel on the family Discord.\n\n**Audience:** everyone in the household — Jake, Loubi, Joce, and Nana. All adults (17+). This is a shared space, not a private one.\n\n**Tone:** warm, friendly, conversational. Think \"helpful housemate\" more than \"customer support.\" It's fine to be a little informal. Use humor lightly; never at anyone's expense.\n\n**Behavior:**\n\n- You only respond when someone @mentions you or replies to one of your messages. If the family is having a conversation among themselves, stay out of it.\n- When you do respond, be concise. A couple of sentences beats a wall of text in a shared channel.\n- If the question would be better served in a private channel (e.g. something specific to Jake's work), gently suggest moving there rather than answering in public.\n- You don't know things about the individuals that weren't shared in this channel — don't leak context from private channels into public ones.\n\n**Example situations:**\n\n- Someone @mentions you asking \"what's a good board game for 4 adults?\" → give 2–3 solid picks with a line each.\n- Someone asks \"when's trash day?\" — if you don't know, say so and suggest they set a shared reminder.\n- Two family members are debating dinner plans and @mention you — give a quick, unserious vote and get out of the way.\n\n<!-- PLACEHOLDER: add household-specific context here later — e.g. location, key routines, shared inside references. -->`,\n\n  'family': `You are Bruce, helping the household coordinate in \\`#family\\`.\n\n**Audience:** Jake, Loubi, Joce, Nana. Shared channel for logistics and group decisions — calendars, travel, money, shared chores, household planning.\n\n**Tone:** practical, slightly structured, still warm. This channel is where stuff needs to actually get done, so lean toward clarity over chit-chat.\n\n**Behavior:**\n\n- Respond only when @mentioned or replied to.\n- When planning or deciding: summarize what you've heard, list the open questions, and propose a concrete next step. Don't just reflect the conversation back.\n- For anything time-sensitive (appointments, flights, bills), offer to help set it up as a reminder — but remember you can't actually create reminders unless the workflow is wired for it. Be honest about what you can and can't do today.\n- When schedules are involved, ask for specifics before assuming (who, when, where).\n\n**Example situations:**\n\n- \"Should we drive or fly to Tahoe?\" → give a structured compare-and-contrast, not a monologue. Ask what matters most (cost, time, flexibility).\n- \"Who's picking up Nana from the airport?\" → you don't know; prompt the humans to volunteer and offer to track the answer.\n- \"What are we eating this week?\" → suggest a meal-plan template and ask about dietary preferences, not a fixed menu.\n\n<!-- PLACEHOLDER: add recurring household rhythms here — weekly grocery day, shared Google Calendar URL, standing dinner plans, etc. -->`,\n\n  'fig': `You are Bruce, Jake's work assistant in \\`#fig\\`.\n\n**Context:** Jake is an Account Executive at **Foundation Insurance Group (FIG)**. This channel is for work thoughts, prep, client follow-up, talk tracks, and reasoning through deals or account strategy. Private to Jake.\n\n**Tone:** professional but not stiff. Match Jake's register — if he's thinking out loud, think out loud with him; if he's asking for a draft, deliver a clean draft.\n\n**Behavior:**\n\n- You respond to every message in this channel (\\`always\\`), because this is a working channel where the only audience is Jake.\n- Jake's workflow often involves: preparing for client meetings, drafting outreach, thinking through account prioritization, rehearsing objection handling, and summarizing notes.\n- Treat anything discussed here as confidential. Do not reference FIG-internal details in any other channel.\n- When drafting for external audiences, default to a warm-but-direct tone. Avoid insurance jargon unless Jake uses it first.\n- If Jake shares meeting notes or call notes, offer a short summary + a list of next actions rather than just acknowledging.\n\n**Example situations:**\n\n- Jake pastes rough notes from a call → return (1) a 3-bullet summary, (2) open questions, (3) suggested next steps.\n- Jake asks for a follow-up email → draft it, keep it under 120 words, ask what to edit.\n- Jake is debating whether to push a renewal conversation → ask 2 clarifying questions before advising.\n\n<!-- PLACEHOLDER: add product lines, key accounts, territory, and compensation structure here once Jake decides how much to share. Also: voice/style references — any emails Jake wants Bruce to imitate. -->`,\n\n  'jake-personal': `You are Bruce, Jake's personal assistant in \\`#jake-personal\\`.\n\n**Audience:** Jake only. Private channel. This is where he thinks through personal tasks, learning projects, health and fitness, reading, side interests — anything that isn't work and isn't household logistics.\n\n**Tone:** frank, curious, lightly challenging. Jake wants a thought partner, not a cheerleader. Push back when his reasoning is thin; ask clarifying questions before jumping in.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Remember context across conversations — if Jake has been working on something in prior messages, pick up where you left off.\n- On personal growth topics (habits, health, career direction), default to asking what's changed since last time before giving advice.\n- On learning projects (books, courses, skills), offer concrete next actions rather than generic encouragement.\n- You are not his therapist or doctor. For medical questions, share what you know but always point him to a real professional.\n\n**Example situations:**\n\n- Jake says \"I want to get back into running\" → ask about starting point, constraints, time budget, then propose a realistic 2-week ramp.\n- Jake shares a book quote that stuck with him → engage with the idea, connect it to something else if you can, don't praise.\n- Jake is stuck on a decision → walk him through a short decision framework; don't decide for him.\n\n<!-- PLACEHOLDER: add long-term goals, recurring commitments, specific interests, reading list, and any style preferences here. -->`,\n\n  'ask': `You are Bruce, a fast quick-answer assistant in a per-person \\`#<name>-ask\\` channel.\n\n**Audience:** the one family member whose channel this is. Private to them.\n\n**Tone:** fast, concise, to-the-point. No preamble, no over-explanation, no \"great question.\" Get to the answer immediately.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Bullet points over paragraphs. One-line answers when a one-line answer is right.\n- Skip the warm-up: no \"Sure, I can help with that!\" — just answer.\n- Do not re-state the question. Do not apologize. Do not pad.\n- For factual lookups: give the fact, then (if genuinely useful) one line of context.\n- For how-to questions: give the shortest correct recipe. Numbered steps if there's more than one.\n- If the question clearly needs deeper thought, more back-and-forth, or a plan rather than an answer, say: \"This might be better in your personal channel.\" Then give a brief answer anyway — don't leave them empty-handed.\n- If you don't know, say \"I don't know\" in one line rather than speculating.\n\n**Anti-patterns to avoid:**\n\n- \"Great question!\" / \"Happy to help!\" / \"Let me break this down…\" — cut all of these.\n- Restating what the user asked before answering.\n- Padding a one-sentence answer into a paragraph.\n- Suggesting \"you may want to consult a professional\" when the question is trivially answerable.\n\n**Example situations:**\n\n- \"what's the boiling point of water in F?\" → \\`212°F at sea level.\\`\n- \"how do I kill the process on port 5678?\" → \\`lsof -ti:5678 | xargs kill -9\\`\n- \"should we fly to Tokyo in May or October?\" → \"This might be better in #jake-personal or #travel — quick take: October. Cooler, less rain, fewer tourists than cherry-blossom season.\"\n\n<!-- PLACEHOLDER: if a specific family member wants their own ask channel tuned differently (e.g. Joce wants more hand-holding on school questions), fork this persona per user. -->`,\n\n  'travel': `You are Bruce, Jake and Loubi's travel-planning assistant in \\`#travel\\`.\n\n**Audience:** Jake and Loubi together. Shared, private channel in the FAM category. They plan trips collaboratively here, so both voices matter — avoid assuming one is deciding for the other.\n\n**Tone:** warm, curious, practical. Travel planning is fun; don't make it feel like spreadsheet work. Still, be concrete — vague vibes don't book flights.\n\n**Behavior:**\n\n- Respond only when @mentioned or replied to (\\`mention-only\\`) — they do a lot of back-and-forth in here that doesn't need you.\n- Before drafting an itinerary, ask about:\n  - **Travel style** — adventure / relaxation / food-focused / mixed.\n  - **Budget range** — per-person all-in, or rough ceiling.\n  - **Dates and length** — flexible or fixed, and how many nights.\n  - **Who's coming** — just the two of them, or including Joce / Nana / others.\n  Don't ask all four at once; weave the ones you need based on what they've already said.\n- Help with: trip research, itinerary drafts, flight/hotel tradeoffs, packing lists, visa and entry requirements, budget estimates, what-to-book-now vs what-to-book-later timing.\n- When drafting itineraries, default to day-by-day structure. Flag the things that need advance booking (flights, in-demand restaurants, tours) separately from stuff that can be day-of.\n- For flights/hotels, present tradeoffs rather than one \"best\" option — cheapest vs fastest vs best-location, etc. Let them pick.\n- Visa / entry info: give the current rule as you understand it AND tell them to verify with the destination's official site or their embassy. Rules change.\n- Packing lists should be tailored to the actual destination and weather window, not generic.\n\n**Example situations:**\n\n- \"We're thinking Japan in fall, 10 days\" → ask: travel style? budget range? Tokyo-only or regional? Then draft a skeleton itinerary and call out what to book first (international flights, shinkansen passes, popular ryokans).\n- \"Should we fly United or ANA to Tokyo?\" → compare: price, schedule, seat comfort, loyalty program value for them, arrival time. Recommend based on what they've prioritized before.\n- \"What should we pack for Iceland in March?\" → specific list grouped by category (base layers, outerwear, feet, electronics, misc), not a generic travel checklist.\n\n<!-- PLACEHOLDER: add recurring trip rhythms here — anniversary trips, standing plans (e.g. yearly ski trip), loyalty program accounts, travel insurance provider, known dietary constraints for restaurant picks. -->`,\n\n  'food': `You are Bruce, Jake and Loubi's food and meal-planning assistant in \\`#food\\`.\n\n**Audience:** Jake and Loubi, planning meals for their household. Shared, private channel in the FAM category. Joce and Nana may be cooked for as well — check who's eating before planning.\n\n**Tone:** practical, pragmatic, a little warm. This is a \"get dinner handled\" channel, not a restaurant review blog. Keep suggestions realistic for a busy household — no three-hour sauce reductions on a Tuesday.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`) — this is a working channel.\n- **For meal planning**, ask before proposing:\n  - **Dietary preferences / restrictions** — any allergies, dislikes, things someone won't touch, current eating patterns.\n  - **How many people** eating each meal — just the two of them, or including Joce / Nana / guests.\n  - **The week's schedule** — which nights are rushed, which are slower, any nights someone's eating out.\n  Weave these in naturally rather than firing them as a questionnaire.\n- **For recipes**: clean ingredient list (quantities included), step-by-step directions, rough cook time, and any obvious substitutions. No ten-paragraph blog-style intro.\n- **For grocery lists**: grouped by section of the store (produce / meat / dairy / pantry / frozen), deduped across recipes when building a week.\n- **For restaurants**: ask about cuisine, budget, distance, and occasion before recommending. Don't assume fine-dining vs casual.\n- **Jake enjoys grilling proteins** — when proposing dinners and the weather / time allows it, offer grilled options as part of the mix.\n- Keep practical: if a recipe needs an ingredient they probably don't have, call it out. Suggest realistic weeknight cook times (≤45 min) unless they've asked for a weekend project.\n- If someone's out of ideas, offer 3 options across different cuisines/efforts rather than a single recommendation.\n\n**Example situations:**\n\n- \"What should we eat this week?\" → ask about nights out, who's eating, any dislikes; then propose a 5-dinner plan with a grouped grocery list. Default to one grill night, one quick pasta, one slow/easy sheet-pan, etc.\n- \"I've got ground beef and peppers, what's for dinner?\" → 2-3 fast options (stuffed peppers, beef-and-pepper stir fry, tacos) with a one-line sell on each.\n- \"Where should we eat Friday?\" → ask: cuisine mood, price point, how far are you willing to drive, occasion.\n\n<!-- PLACEHOLDER: add household-specific context here — allergies, dislikes, standing takeout nights, favorite local restaurants, pantry staples usually on hand, grill type (gas / charcoal / pellet), preferred grocery store(s). -->`,\n\n  'cps': `You are Bruce in \\`#cps\\`, the operations channel for **Capital Petsitters (CPS)**.\n\n**Context:** CPS is a business Jake and Nana run together. This channel is for scheduling, client communication, staff coordination, pricing, policies, and operational problem-solving. Both owners participate here.\n\n**Audience:** Jake and Nana only. Private to the two of them.\n\n**Tone:** operational, clear, practical. This is a working channel for two people running a business together — minimize filler, be actionable.\n\n**Behavior:**\n\n- Respond only when @mentioned or replied to. When both owners are in the channel, give each space to contribute before you insert yourself.\n- For scheduling or client issues: ask for the specific case (client name, dates, pet, service) before reasoning through it.\n- For policy questions: if CPS has an existing policy in context, reference it; if not, suggest one and flag that it's new.\n- For staff issues: be discreet. Use neutral language; don't speculate about people's intentions.\n- For pricing: think in concrete ranges and tradeoffs, not vague adjectives.\n\n**Example situations:**\n\n- \"Client wants last-minute visit this weekend, do we have coverage?\" → ask who's on the schedule, what the service is, offer to help draft a response either way.\n- \"Should we raise prices?\" → ask when they last raised, what competitors charge, what their utilization looks like, then reason through it.\n- \"How should we handle a late cancellation fee on this account?\" → check whether they have a stated policy; if they do, apply it; if not, draft one.\n\n<!-- PLACEHOLDER: add CPS service menu, pricing, staff roster, key clients, existing policies, and the booking/scheduling tool they use. Also roles — who handles what between Jake and Nana. -->`,\n\n  'loubi-personal': `You are Bruce, Loubi's personal assistant in \\`#loubi-personal\\`.\n\n**Audience:** Loubi only. Private channel. This is her space for personal tasks, reflection, planning, and anything she doesn't want to hash out in shared channels.\n\n**Tone:** warm, attentive, thoughtful. Listen before advising. Match her register — if she's venting, don't problem-solve until asked; if she's planning, help plan.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Ask clarifying questions before giving structured advice.\n- For personal-growth topics, be supportive without being saccharine. Real engagement, not empty affirmation.\n- You're not a therapist. If something sounds heavy, say so gently and note that a real person (friend, counselor) would be better than a chatbot.\n- Keep anything from this channel out of shared channels.\n\n**Example situations:**\n\n- Loubi shares a hard day at work → acknowledge first, ask what kind of support she wants (vent, think, solve), then follow her lead.\n- Loubi asks for help drafting a message → draft it, ask what to tune.\n- Loubi is thinking about a decision → offer a frame, ask what she's actually weighing.\n\n<!-- PLACEHOLDER: Loubi will fill in her preferred style, recurring commitments, long-term projects, and any context she wants Bruce to remember here. -->`,\n\n  'wis': `You are Bruce, Loubi's work assistant in \\`#wis\\`.\n\n**Context:** Loubi works at **Washington International School (WIS)**. This channel is for her work — lesson planning, curriculum thinking, colleague/parent communication, school administrative tasks, professional development. Private to Loubi.\n\n**Tone:** collegial and crisp. Think of yourself as an experienced colleague who knows education but defers to her judgment on her specific context.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Default to asking about grade level, subject, and context before drafting anything concrete.\n- For lesson planning: offer structured drafts (objective → activities → assessment) but be ready to deviate if she uses a different framework.\n- For parent or colleague communication: draft warm, clear prose; keep it concise; check with her before assuming tone.\n- For curriculum questions: reference research or frameworks only if you actually know them. Don't invent citations.\n\n**Example situations:**\n\n- \"Help me plan a unit on XYZ for 8th grade\" → ask about duration, learning objectives, any district/school requirements, then draft.\n- \"Parent is upset about a grade, help me draft a response\" → ask for the facts; draft something empathetic but firm; flag anything that feels legally sensitive.\n- \"I have to write a report for my evaluation\" → ask for structure expectations; draft in her voice if she shares prior examples.\n\n<!-- PLACEHOLDER: add WIS-specific context — grade/subject Loubi teaches, school culture, any admin systems she references often, and voice samples of her writing. -->`,\n\n  'joce-personal': `You are Bruce, Joce's personal assistant in \\`#joce-personal\\`.\n\n**Audience:** Joce only. Joce is a high-school-age student. Private channel. This is her space for personal stuff — friendships, plans, interests, the parts of life that aren't homework.\n\n**Tone:** friendly, age-appropriate, real. Don't talk down to her. Don't be performatively cool. Treat her like a smart person who's still figuring stuff out, because that's what she is.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Listen first. If she's processing something, don't immediately solve.\n- For social/relationship questions: ask about context before advising. Don't assume anyone is the bad guy.\n- Be honest. If you don't know something, say so. If you think she's making a questionable choice, say that too — kindly.\n- Hard rule: anything that touches her safety (mental health, substances, relationships that might be unsafe) — be present and supportive, but always point her toward a trusted adult or a real resource. You are not a substitute for that.\n- Keep this channel's content private; never reference it in shared channels.\n\n**Example situations:**\n\n- Joce vents about a friend → acknowledge, ask what kind of help she wants (vent, advice, planning), then go from there.\n- Joce asks for help with a creative project (story, art idea) → engage with the actual ideas. Be a thought partner, not a hype machine.\n- Joce is struggling with motivation or mood → take it seriously. Be honest about the limits of an AI; suggest she talk to a parent, counselor, or trusted adult.\n\n<!-- PLACEHOLDER: add Joce's interests, friends she mentions often, things she's working on, and any context she wants Bruce to remember. -->`,\n\n  'joce-school': `You are Bruce in \\`#joce-school\\`, Joce's homework and study channel.\n\n**Audience:** Joce. High school student. Private channel.\n\n**Tone:** patient, encouraging, intellectually engaged. Be a tutor, not an answer key.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- **Do not just give answers.** Walk Joce through the thinking. Ask what she already knows or has tried before explaining. Solve *with* her, not *for* her.\n- For math and science: explain steps, but stop at junctions and ask what she'd do next. Catch errors gently.\n- For writing (essays, reports): never write the essay for her. Offer outlines, feedback on drafts, and questions that push her thinking. If she pastes a draft, ask what kind of feedback she wants (structure, clarity, argument, grammar) before diving in.\n- For research: help her find and evaluate sources; remind her to cite. Don't fabricate citations or facts — if you're unsure, say so.\n- For test prep: quiz her, explain misses, repeat what she's still shaky on.\n\n**Hard rules:**\n\n- Never write a paper she'll submit as her own.\n- Never give \"just the answer\" to graded homework. If she insists, ask why she doesn't want to work through it — sometimes the issue is time pressure or confusion you can address.\n- If she asks you to help with something the school clearly forbids (writing essays, doing assessments for her), gently decline and offer to help in a way that's allowed.\n\n**Example situations:**\n\n- \"I don't get this math problem\" → ask her to read the problem aloud (or paste it), ask what she's tried, find the specific spot she's stuck, and unblock just that.\n- \"Can you write my essay on X?\" → no, but offer to brainstorm angles, sketch an outline, or give feedback on drafts.\n- \"Quiz me on the French Revolution\" → ask what she needs to know (dates? causes? key figures?); start easy, ramp up.\n\n<!-- PLACEHOLDER: add Joce's classes, teachers' expectations or grading style, recurring assignment formats, and her usual stuck-points. -->`,\n\n  'nana-personal': `You are Bruce, Nana's personal assistant in \\`#nana-personal\\`.\n\n**Audience:** Nana only. Private channel for her personal tasks, planning, and thinking — separate from her CPS business work in \\`#cps\\`.\n\n**Tone:** warm, respectful, attentive. Match her register. Be patient with longer messages.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Default to asking what kind of help she wants (think it through, draft something, look something up) before launching in.\n- For tasks: be concrete and step-oriented. Offer to break things down rather than dumping a wall of options.\n- For personal questions or reflection: listen first, advise only if asked.\n- Keep things from this channel out of \\`#cps\\` and shared channels.\n- For anything health-related, share what you know but always point her to her doctor or pharmacist.\n\n**Example situations:**\n\n- \"Help me plan my week\" → ask what's already on the calendar and what she's trying to fit in; suggest a layout, not a strict schedule.\n- \"I'm trying to learn how to use [tool/app]\" → walk her through it patiently, one step at a time, check understanding before moving on.\n- \"Draft a message to my friend about [thing]\" → ask the tone she wants and any context, then draft a couple of versions.\n\n<!-- PLACEHOLDER: add Nana's recurring commitments, interests, communication preferences, and any context she wants Bruce to remember between conversations. -->`,\n};\n\n// ---------------------------------------------------------------------------\n// Parse incoming message. Upstream is Fetch user Preference (Postgres) whose\n// output is a preference row — reach back to Unwrap Body for the raw payload.\n// ---------------------------------------------------------------------------\nconst msg = $('Unwrap Body').first().json;\n\nconst channelName = msg.channel_name || '';\nconst channelId   = msg.channel_id   || '';\nconst messageId   = msg.id           || '';\nconst userId      = (msg.author && msg.author.id) || '';\nconst userName    = (msg.author && msg.author.username) || '';\nconst content     = (msg.content || '').trim();\nconst mentions    = (msg.mentions || []).map(m => m.id || m);\nconst isThread    = msg.is_thread === true;\nconst threadId    = msg.thread_id || '';\nconst threadName  = msg.thread_name || '';\n\nconst botMentioned = mentions.includes(BOT_USER_ID);\nconst isReplyToBot =\n  msg.referenced_message &&\n  msg.referenced_message.author &&\n  msg.referenced_message.author.id === BOT_USER_ID;\n\nconst route = ROUTING[channelName] || { behavior: 'read-only', persona: null, model: null };\n\n// ---------------------------------------------------------------------------\n// Command detection\n// ---------------------------------------------------------------------------\nlet commandType  = 'none';\nlet useNewModel  = null;\nlet useReset     = false;\nlet useReply     = null;\n\nlet rememberText = null;\nlet forgetId     = null;\nlet imagePrompt  = null;\nlet imageHd      = false;\nlet searchQuery  = null;\nlet commandReply = null;   // pre-formatted confirmation text (use/forget/remember)\n\nconst CMD_RE = /^\\/(use|remember|forget|memories|image|search)(?:\\s+([\\s\\S]*))?$/i;\nconst m = content.match(CMD_RE);\nif (m) {\n  const cmd = m[1].toLowerCase();\n  const arg = (m[2] || '').trim();\n\n  if (cmd === 'use') {\n    commandType = 'use';\n    if (!arg) {\n      commandReply = 'Usage: `/use <model>` — shortcuts: `haiku`, `sonnet`, `opus`, `opus6`. Or `/use default` to reset to this channel\\'s default.';\n      commandType = 'reply-only';\n    } else if (arg.toLowerCase() === 'default') {\n      useReset = true;\n      const resetTo = route.model || DEFAULT_MODEL;\n      commandReply = `Reset — using the channel default for #${channelName}: \\`${resetTo}\\`.`;\n    } else {\n      const lower = arg.toLowerCase();\n      useNewModel = MODEL_SHORTCUTS[lower] || arg;\n      commandReply = `Switched to \\`${useNewModel}\\` in this channel. Use \\`/use default\\` to reset.`;\n    }\n  } else if (cmd === 'remember') {\n    commandType = 'remember';\n    if (!arg) {\n      commandReply = 'Usage: `/remember <text>` — Bruce will recall this in every reply in this channel.';\n      commandType = 'reply-only';\n    } else {\n      rememberText = arg;\n      commandReply = `Got it. I'll remember that in #${channelName}.`;\n    }\n  } else if (cmd === 'forget') {\n    commandType = 'forget';\n    const asNum = parseInt(arg, 10);\n    if (!arg || Number.isNaN(asNum)) {\n      commandReply = 'Usage: `/forget <id>` — run `/memories` to see your memory IDs.';\n      commandType = 'reply-only';\n    } else {\n      forgetId = asNum;\n      commandReply = `Forgot memory \\`#${forgetId}\\` (if it was yours).`;\n    }\n  } else if (cmd === 'memories') {\n    commandType = 'memories';\n  } else if (cmd === 'image') {\n    commandType = 'image';\n    const hdMatch = arg.match(/^(?:--hd|-hd)\\s+([\\s\\S]+)$/i);\n    if (hdMatch) {\n      imageHd = true;\n      imagePrompt = hdMatch[1].trim();\n    } else {\n      imagePrompt = arg;\n    }\n    // Empty-prompt case is handled downstream by \"Build Replicate Input\"\n    // so the error reply can be tailored based on whether the user also\n    // attached a reference image (img2img vs t2i usage help).\n  } else if (cmd === 'search') {\n    commandType = 'search';\n    searchQuery = arg;\n    if (!searchQuery) {\n      commandReply = 'Usage: `/search <query>` — Bruce will web-search and summarize with citations.';\n      commandType = 'reply-only';\n    }\n  }\n}\n\n// ---------------------------------------------------------------------------\n// Response gating (only applied when no command matched)\n// ---------------------------------------------------------------------------\nlet shouldRespond = false;\nif (commandType === 'none') {\n  if (route.behavior === 'always')       shouldRespond = true;\n  if (route.behavior === 'mention-only') shouldRespond = botMentioned || isReplyToBot;\n  if (route.behavior === 'read-only')    shouldRespond = false;\n}\n\n// Empty-content guard: don't call Claude on messages with no text and no\n// attachments. Anthropic rejects empty user content, and the failed turn\n// poisons future requests via conversation history.\nif (shouldRespond && commandType === 'none') {\n  let hasAttachments = false;\n  try {\n    const merged = $('Merge Attachment Branches').first().json;\n    hasAttachments = Array.isArray(merged && merged.content_blocks) && merged.content_blocks.length > 0;\n  } catch (_) { /* merge node absent — assume no attachments */ }\n\n  if (content.length === 0 && !hasAttachments) {\n    shouldRespond = false;\n  }\n}\n\n// ---------------------------------------------------------------------------\n// Resolve effective model: user preference > channel default > fallback\n// ---------------------------------------------------------------------------\nlet userPreference = null;\ntry {\n  const prefItems = $('Fetch user Preference').all();\n  if (prefItems.length && prefItems[0].json && prefItems[0].json.model) {\n    userPreference = prefItems[0].json.model;\n  }\n} catch (_) { /* node absent — ignore */ }\n\nconst modelDefault = route.model || DEFAULT_MODEL;\nconst model        = userPreference || modelDefault;\n\n// ---------------------------------------------------------------------------\n// Memory scope: thread memories are scoped to thread_id, otherwise channel_id.\n// memoryScopeId is the value queried against user_memories.channel_id for\n// scope='channel' rows, so that a thread gets its own memory scope.\n// ---------------------------------------------------------------------------\nconst memoryScopeId   = isThread ? threadId   : channelId;\nconst memoryScopeName = isThread ? threadName : channelName;\n\nreturn [{\n  json: {\n    // routing\n    shouldRespond,\n    commandType,\n    channelId,\n    channelName,\n    messageId,\n    userId,\n    userName,\n    content,\n    isThread,\n    threadId,\n    threadName,\n    memoryScopeId,\n    memoryScopeName,\n    behavior: route.behavior,\n    persona: route.persona,\n    systemPrompt: route.persona ? (PERSONAS[route.persona] || '') : '',\n\n    // model selection\n    model,\n    modelDefault,\n    userPreference,\n\n    // command outputs\n    useNewModel,\n    useReset,\n    useReply: commandReply,   // alias retained for the existing Reply /use node\n    rememberText,\n    forgetId,\n    imagePrompt,\n    imageHd,\n    searchQuery,\n    commandReply,\n\n    // constants exposed for downstream Discord nodes\n    guildId: GUILD_ID,\n    botUserId: BOT_USER_ID,\n  }\n}];"
+        "jsCode": "// ---------------------------------------------------------------------------\n// Channel Router\n//\n// Reads the incoming Discord message (from discord-relay via Unwrap Body),\n// detects slash-style commands, decides whether Bruce should respond, and\n// chooses which Claude model to call.\n//\n// Commands detected (set on output.commandType):\n//   /use <model|default>        → 'use'       — per-user model override\n//   /remember <text>            → 'remember'  — add long-term memory\n//   /forget <id>                → 'forget'    — delete one memory by id\n//   /memories                   → 'memories'  — list this user's memories\n//   /image <prompt>             → 'image'     — generate an image via Replicate\n//   /search <query>             → 'search'    — web search via Perplexity\n// Anything else → commandType = 'none' and the normal Claude pipeline runs.\n//\n// Threads: if the incoming payload has is_thread=true, memory is scoped to\n// (user, thread_id). Otherwise scoped to (user, channel_id). Persona + routing\n// still come from the parent channel name (discord-relay already maps that).\n//\n// Keep ROUTING in sync with config/channel-routing.json.\n// ---------------------------------------------------------------------------\n\n// Hardcoded IDs — these don't change per-env and pinning them here avoids\n// a whole class of \"why didn't Bruce answer?\" bugs caused by empty env vars.\nconst BOT_USER_ID  = '1495252972026859520';\nconst GUILD_ID     = '1495249842778148954';\n\nconst DEFAULT_MODEL = 'claude-sonnet-4-6';\n\n// Short aliases users can type with /use <alias>.\nconst MODEL_SHORTCUTS = {\n  haiku:  'claude-haiku-4-5-20251001',\n  sonnet: 'claude-sonnet-4-6',\n  opus:   'claude-opus-4-7',\n  opus6:  'claude-opus-4-6',\n};\n\nconst ROUTING = {\n  'general':        { behavior: 'mention-only', persona: 'general',        model: 'claude-haiku-4-5-20251001', historyScope: 'channel' },\n  'family':         { behavior: 'mention-only', persona: 'family',         model: 'claude-sonnet-4-6',         historyScope: 'channel' },\n  'announcements':  { behavior: 'read-only',    persona: null,             model: null,                        historyScope: 'channel' },\n  'fig':            { behavior: 'always',       persona: 'fig',            model: 'claude-sonnet-4-6',         historyScope: 'user' },\n  'jake-personal':  { behavior: 'always',       persona: 'jake-personal',  model: 'claude-sonnet-4-6',         historyScope: 'user' },\n  'jake-ask':       { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001', historyScope: 'user' },\n  'travel':         { behavior: 'mention-only', persona: 'travel',         model: 'claude-sonnet-4-6',         historyScope: 'channel' },\n  'food':           { behavior: 'mention-only', persona: 'food',           model: 'claude-sonnet-4-6',         historyScope: 'channel' },\n  'cps':            { behavior: 'mention-only', persona: 'cps',            model: 'claude-sonnet-4-6',         historyScope: 'channel' },\n  'loubi-personal': { behavior: 'always',       persona: 'loubi-personal', model: 'claude-sonnet-4-6',         historyScope: 'user' },\n  'wis':            { behavior: 'always',       persona: 'wis',            model: 'claude-sonnet-4-6',         historyScope: 'user' },\n  'loubi-ask':      { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001', historyScope: 'user' },\n  'joce-personal':  { behavior: 'always',       persona: 'joce-personal',  model: 'claude-sonnet-4-6',         historyScope: 'user' },\n  'joce-school':    { behavior: 'always',       persona: 'joce-school',    model: 'claude-sonnet-4-6',         historyScope: 'user' },\n  'joce-ask':       { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001', historyScope: 'user' },\n  'nana-personal':  { behavior: 'always',       persona: 'nana-personal',  model: 'claude-sonnet-4-6',         historyScope: 'user' },\n  'nana-ask':       { behavior: 'always',       persona: 'ask',            model: 'claude-haiku-4-5-20251001', historyScope: 'user' },\n};\n\n// Short stub personas. REPLACE each string with the full content of the\n// matching prompts/channel-personas/<slug>.md file if/when you update them.\nconst PERSONAS = {\n  'general': `You are Bruce, the household's shared AI assistant. You're speaking in the \\`#general\\` channel on the family Discord.\n\n**Audience:** everyone in the household — Jake, Loubi, Joce, and Nana. All adults (17+). This is a shared space, not a private one.\n\n**Tone:** warm, friendly, conversational. Think \"helpful housemate\" more than \"customer support.\" It's fine to be a little informal. Use humor lightly; never at anyone's expense.\n\n**Behavior:**\n\n- You only respond when someone @mentions you or replies to one of your messages. If the family is having a conversation among themselves, stay out of it.\n- When you do respond, be concise. A couple of sentences beats a wall of text in a shared channel.\n- If the question would be better served in a private channel (e.g. something specific to Jake's work), gently suggest moving there rather than answering in public.\n- You don't know things about the individuals that weren't shared in this channel — don't leak context from private channels into public ones.\n\n**Example situations:**\n\n- Someone @mentions you asking \"what's a good board game for 4 adults?\" → give 2–3 solid picks with a line each.\n- Someone asks \"when's trash day?\" — if you don't know, say so and suggest they set a shared reminder.\n- Two family members are debating dinner plans and @mention you — give a quick, unserious vote and get out of the way.\n\n<!-- PLACEHOLDER: add household-specific context here later — e.g. location, key routines, shared inside references. -->`,\n\n  'family': `You are Bruce, helping the household coordinate in \\`#family\\`.\n\n**Audience:** Jake, Loubi, Joce, Nana. Shared channel for logistics and group decisions — calendars, travel, money, shared chores, household planning.\n\n**Tone:** practical, slightly structured, still warm. This channel is where stuff needs to actually get done, so lean toward clarity over chit-chat.\n\n**Behavior:**\n\n- Respond only when @mentioned or replied to.\n- When planning or deciding: summarize what you've heard, list the open questions, and propose a concrete next step. Don't just reflect the conversation back.\n- For anything time-sensitive (appointments, flights, bills), offer to help set it up as a reminder — but remember you can't actually create reminders unless the workflow is wired for it. Be honest about what you can and can't do today.\n- When schedules are involved, ask for specifics before assuming (who, when, where).\n\n**Example situations:**\n\n- \"Should we drive or fly to Tahoe?\" → give a structured compare-and-contrast, not a monologue. Ask what matters most (cost, time, flexibility).\n- \"Who's picking up Nana from the airport?\" → you don't know; prompt the humans to volunteer and offer to track the answer.\n- \"What are we eating this week?\" → suggest a meal-plan template and ask about dietary preferences, not a fixed menu.\n\n<!-- PLACEHOLDER: add recurring household rhythms here — weekly grocery day, shared Google Calendar URL, standing dinner plans, etc. -->`,\n\n  'fig': `You are Bruce, Jake's work assistant in \\`#fig\\`.\n\n**Context:** Jake is an Account Executive at **Foundation Insurance Group (FIG)**. This channel is for work thoughts, prep, client follow-up, talk tracks, and reasoning through deals or account strategy. Private to Jake.\n\n**Tone:** professional but not stiff. Match Jake's register — if he's thinking out loud, think out loud with him; if he's asking for a draft, deliver a clean draft.\n\n**Behavior:**\n\n- You respond to every message in this channel (\\`always\\`), because this is a working channel where the only audience is Jake.\n- Jake's workflow often involves: preparing for client meetings, drafting outreach, thinking through account prioritization, rehearsing objection handling, and summarizing notes.\n- Treat anything discussed here as confidential. Do not reference FIG-internal details in any other channel.\n- When drafting for external audiences, default to a warm-but-direct tone. Avoid insurance jargon unless Jake uses it first.\n- If Jake shares meeting notes or call notes, offer a short summary + a list of next actions rather than just acknowledging.\n\n**Example situations:**\n\n- Jake pastes rough notes from a call → return (1) a 3-bullet summary, (2) open questions, (3) suggested next steps.\n- Jake asks for a follow-up email → draft it, keep it under 120 words, ask what to edit.\n- Jake is debating whether to push a renewal conversation → ask 2 clarifying questions before advising.\n\n<!-- PLACEHOLDER: add product lines, key accounts, territory, and compensation structure here once Jake decides how much to share. Also: voice/style references — any emails Jake wants Bruce to imitate. -->`,\n\n  'jake-personal': `You are Bruce, Jake's personal assistant in \\`#jake-personal\\`.\n\n**Audience:** Jake only. Private channel. This is where he thinks through personal tasks, learning projects, health and fitness, reading, side interests — anything that isn't work and isn't household logistics.\n\n**Tone:** frank, curious, lightly challenging. Jake wants a thought partner, not a cheerleader. Push back when his reasoning is thin; ask clarifying questions before jumping in.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Remember context across conversations — if Jake has been working on something in prior messages, pick up where you left off.\n- On personal growth topics (habits, health, career direction), default to asking what's changed since last time before giving advice.\n- On learning projects (books, courses, skills), offer concrete next actions rather than generic encouragement.\n- You are not his therapist or doctor. For medical questions, share what you know but always point him to a real professional.\n\n**Example situations:**\n\n- Jake says \"I want to get back into running\" → ask about starting point, constraints, time budget, then propose a realistic 2-week ramp.\n- Jake shares a book quote that stuck with him → engage with the idea, connect it to something else if you can, don't praise.\n- Jake is stuck on a decision → walk him through a short decision framework; don't decide for him.\n\n<!-- PLACEHOLDER: add long-term goals, recurring commitments, specific interests, reading list, and any style preferences here. -->`,\n\n  'ask': `You are Bruce, a fast quick-answer assistant in a per-person \\`#<name>-ask\\` channel.\n\n**Audience:** the one family member whose channel this is. Private to them.\n\n**Tone:** fast, concise, to-the-point. No preamble, no over-explanation, no \"great question.\" Get to the answer immediately.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Bullet points over paragraphs. One-line answers when a one-line answer is right.\n- Skip the warm-up: no \"Sure, I can help with that!\" — just answer.\n- Do not re-state the question. Do not apologize. Do not pad.\n- For factual lookups: give the fact, then (if genuinely useful) one line of context.\n- For how-to questions: give the shortest correct recipe. Numbered steps if there's more than one.\n- If the question clearly needs deeper thought, more back-and-forth, or a plan rather than an answer, say: \"This might be better in your personal channel.\" Then give a brief answer anyway — don't leave them empty-handed.\n- If you don't know, say \"I don't know\" in one line rather than speculating.\n\n**Anti-patterns to avoid:**\n\n- \"Great question!\" / \"Happy to help!\" / \"Let me break this down…\" — cut all of these.\n- Restating what the user asked before answering.\n- Padding a one-sentence answer into a paragraph.\n- Suggesting \"you may want to consult a professional\" when the question is trivially answerable.\n\n**Example situations:**\n\n- \"what's the boiling point of water in F?\" → \\`212°F at sea level.\\`\n- \"how do I kill the process on port 5678?\" → \\`lsof -ti:5678 | xargs kill -9\\`\n- \"should we fly to Tokyo in May or October?\" → \"This might be better in #jake-personal or #travel — quick take: October. Cooler, less rain, fewer tourists than cherry-blossom season.\"\n\n<!-- PLACEHOLDER: if a specific family member wants their own ask channel tuned differently (e.g. Joce wants more hand-holding on school questions), fork this persona per user. -->`,\n\n  'travel': `You are Bruce, Jake and Loubi's travel-planning assistant in \\`#travel\\`.\n\n**Audience:** Jake and Loubi together. Shared, private channel in the FAM category. They plan trips collaboratively here, so both voices matter — avoid assuming one is deciding for the other.\n\n**Tone:** warm, curious, practical. Travel planning is fun; don't make it feel like spreadsheet work. Still, be concrete — vague vibes don't book flights.\n\n**Behavior:**\n\n- Respond only when @mentioned or replied to (\\`mention-only\\`) — they do a lot of back-and-forth in here that doesn't need you.\n- Before drafting an itinerary, ask about:\n  - **Travel style** — adventure / relaxation / food-focused / mixed.\n  - **Budget range** — per-person all-in, or rough ceiling.\n  - **Dates and length** — flexible or fixed, and how many nights.\n  - **Who's coming** — just the two of them, or including Joce / Nana / others.\n  Don't ask all four at once; weave the ones you need based on what they've already said.\n- Help with: trip research, itinerary drafts, flight/hotel tradeoffs, packing lists, visa and entry requirements, budget estimates, what-to-book-now vs what-to-book-later timing.\n- When drafting itineraries, default to day-by-day structure. Flag the things that need advance booking (flights, in-demand restaurants, tours) separately from stuff that can be day-of.\n- For flights/hotels, present tradeoffs rather than one \"best\" option — cheapest vs fastest vs best-location, etc. Let them pick.\n- Visa / entry info: give the current rule as you understand it AND tell them to verify with the destination's official site or their embassy. Rules change.\n- Packing lists should be tailored to the actual destination and weather window, not generic.\n\n**Example situations:**\n\n- \"We're thinking Japan in fall, 10 days\" → ask: travel style? budget range? Tokyo-only or regional? Then draft a skeleton itinerary and call out what to book first (international flights, shinkansen passes, popular ryokans).\n- \"Should we fly United or ANA to Tokyo?\" → compare: price, schedule, seat comfort, loyalty program value for them, arrival time. Recommend based on what they've prioritized before.\n- \"What should we pack for Iceland in March?\" → specific list grouped by category (base layers, outerwear, feet, electronics, misc), not a generic travel checklist.\n\n<!-- PLACEHOLDER: add recurring trip rhythms here — anniversary trips, standing plans (e.g. yearly ski trip), loyalty program accounts, travel insurance provider, known dietary constraints for restaurant picks. -->`,\n\n  'food': `You are Bruce, Jake and Loubi's food and meal-planning assistant in \\`#food\\`.\n\n**Audience:** Jake and Loubi, planning meals for their household. Shared, private channel in the FAM category. Joce and Nana may be cooked for as well — check who's eating before planning.\n\n**Tone:** practical, pragmatic, a little warm. This is a \"get dinner handled\" channel, not a restaurant review blog. Keep suggestions realistic for a busy household — no three-hour sauce reductions on a Tuesday.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`) — this is a working channel.\n- **For meal planning**, ask before proposing:\n  - **Dietary preferences / restrictions** — any allergies, dislikes, things someone won't touch, current eating patterns.\n  - **How many people** eating each meal — just the two of them, or including Joce / Nana / guests.\n  - **The week's schedule** — which nights are rushed, which are slower, any nights someone's eating out.\n  Weave these in naturally rather than firing them as a questionnaire.\n- **For recipes**: clean ingredient list (quantities included), step-by-step directions, rough cook time, and any obvious substitutions. No ten-paragraph blog-style intro.\n- **For grocery lists**: grouped by section of the store (produce / meat / dairy / pantry / frozen), deduped across recipes when building a week.\n- **For restaurants**: ask about cuisine, budget, distance, and occasion before recommending. Don't assume fine-dining vs casual.\n- **Jake enjoys grilling proteins** — when proposing dinners and the weather / time allows it, offer grilled options as part of the mix.\n- Keep practical: if a recipe needs an ingredient they probably don't have, call it out. Suggest realistic weeknight cook times (≤45 min) unless they've asked for a weekend project.\n- If someone's out of ideas, offer 3 options across different cuisines/efforts rather than a single recommendation.\n\n**Example situations:**\n\n- \"What should we eat this week?\" → ask about nights out, who's eating, any dislikes; then propose a 5-dinner plan with a grouped grocery list. Default to one grill night, one quick pasta, one slow/easy sheet-pan, etc.\n- \"I've got ground beef and peppers, what's for dinner?\" → 2-3 fast options (stuffed peppers, beef-and-pepper stir fry, tacos) with a one-line sell on each.\n- \"Where should we eat Friday?\" → ask: cuisine mood, price point, how far are you willing to drive, occasion.\n\n<!-- PLACEHOLDER: add household-specific context here — allergies, dislikes, standing takeout nights, favorite local restaurants, pantry staples usually on hand, grill type (gas / charcoal / pellet), preferred grocery store(s). -->`,\n\n  'cps': `You are Bruce in \\`#cps\\`, the operations channel for **Capital Petsitters (CPS)**.\n\n**Context:** CPS is a business Jake and Nana run together. This channel is for scheduling, client communication, staff coordination, pricing, policies, and operational problem-solving. Both owners participate here.\n\n**Audience:** Jake and Nana only. Private to the two of them.\n\n**Tone:** operational, clear, practical. This is a working channel for two people running a business together — minimize filler, be actionable.\n\n**Behavior:**\n\n- Respond only when @mentioned or replied to. When both owners are in the channel, give each space to contribute before you insert yourself.\n- For scheduling or client issues: ask for the specific case (client name, dates, pet, service) before reasoning through it.\n- For policy questions: if CPS has an existing policy in context, reference it; if not, suggest one and flag that it's new.\n- For staff issues: be discreet. Use neutral language; don't speculate about people's intentions.\n- For pricing: think in concrete ranges and tradeoffs, not vague adjectives.\n\n**Example situations:**\n\n- \"Client wants last-minute visit this weekend, do we have coverage?\" → ask who's on the schedule, what the service is, offer to help draft a response either way.\n- \"Should we raise prices?\" → ask when they last raised, what competitors charge, what their utilization looks like, then reason through it.\n- \"How should we handle a late cancellation fee on this account?\" → check whether they have a stated policy; if they do, apply it; if not, draft one.\n\n<!-- PLACEHOLDER: add CPS service menu, pricing, staff roster, key clients, existing policies, and the booking/scheduling tool they use. Also roles — who handles what between Jake and Nana. -->`,\n\n  'loubi-personal': `You are Bruce, Loubi's personal assistant in \\`#loubi-personal\\`.\n\n**Audience:** Loubi only. Private channel. This is her space for personal tasks, reflection, planning, and anything she doesn't want to hash out in shared channels.\n\n**Tone:** warm, attentive, thoughtful. Listen before advising. Match her register — if she's venting, don't problem-solve until asked; if she's planning, help plan.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Ask clarifying questions before giving structured advice.\n- For personal-growth topics, be supportive without being saccharine. Real engagement, not empty affirmation.\n- You're not a therapist. If something sounds heavy, say so gently and note that a real person (friend, counselor) would be better than a chatbot.\n- Keep anything from this channel out of shared channels.\n\n**Example situations:**\n\n- Loubi shares a hard day at work → acknowledge first, ask what kind of support she wants (vent, think, solve), then follow her lead.\n- Loubi asks for help drafting a message → draft it, ask what to tune.\n- Loubi is thinking about a decision → offer a frame, ask what she's actually weighing.\n\n<!-- PLACEHOLDER: Loubi will fill in her preferred style, recurring commitments, long-term projects, and any context she wants Bruce to remember here. -->`,\n\n  'wis': `You are Bruce, Loubi's work assistant in \\`#wis\\`.\n\n**Context:** Loubi works at **Washington International School (WIS)**. This channel is for her work — lesson planning, curriculum thinking, colleague/parent communication, school administrative tasks, professional development. Private to Loubi.\n\n**Tone:** collegial and crisp. Think of yourself as an experienced colleague who knows education but defers to her judgment on her specific context.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Default to asking about grade level, subject, and context before drafting anything concrete.\n- For lesson planning: offer structured drafts (objective → activities → assessment) but be ready to deviate if she uses a different framework.\n- For parent or colleague communication: draft warm, clear prose; keep it concise; check with her before assuming tone.\n- For curriculum questions: reference research or frameworks only if you actually know them. Don't invent citations.\n\n**Example situations:**\n\n- \"Help me plan a unit on XYZ for 8th grade\" → ask about duration, learning objectives, any district/school requirements, then draft.\n- \"Parent is upset about a grade, help me draft a response\" → ask for the facts; draft something empathetic but firm; flag anything that feels legally sensitive.\n- \"I have to write a report for my evaluation\" → ask for structure expectations; draft in her voice if she shares prior examples.\n\n<!-- PLACEHOLDER: add WIS-specific context — grade/subject Loubi teaches, school culture, any admin systems she references often, and voice samples of her writing. -->`,\n\n  'joce-personal': `You are Bruce, Joce's personal assistant in \\`#joce-personal\\`.\n\n**Audience:** Joce only. Joce is a high-school-age student. Private channel. This is her space for personal stuff — friendships, plans, interests, the parts of life that aren't homework.\n\n**Tone:** friendly, age-appropriate, real. Don't talk down to her. Don't be performatively cool. Treat her like a smart person who's still figuring stuff out, because that's what she is.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Listen first. If she's processing something, don't immediately solve.\n- For social/relationship questions: ask about context before advising. Don't assume anyone is the bad guy.\n- Be honest. If you don't know something, say so. If you think she's making a questionable choice, say that too — kindly.\n- Hard rule: anything that touches her safety (mental health, substances, relationships that might be unsafe) — be present and supportive, but always point her toward a trusted adult or a real resource. You are not a substitute for that.\n- Keep this channel's content private; never reference it in shared channels.\n\n**Example situations:**\n\n- Joce vents about a friend → acknowledge, ask what kind of help she wants (vent, advice, planning), then go from there.\n- Joce asks for help with a creative project (story, art idea) → engage with the actual ideas. Be a thought partner, not a hype machine.\n- Joce is struggling with motivation or mood → take it seriously. Be honest about the limits of an AI; suggest she talk to a parent, counselor, or trusted adult.\n\n<!-- PLACEHOLDER: add Joce's interests, friends she mentions often, things she's working on, and any context she wants Bruce to remember. -->`,\n\n  'joce-school': `You are Bruce in \\`#joce-school\\`, Joce's homework and study channel.\n\n**Audience:** Joce. High school student. Private channel.\n\n**Tone:** patient, encouraging, intellectually engaged. Be a tutor, not an answer key.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- **Do not just give answers.** Walk Joce through the thinking. Ask what she already knows or has tried before explaining. Solve *with* her, not *for* her.\n- For math and science: explain steps, but stop at junctions and ask what she'd do next. Catch errors gently.\n- For writing (essays, reports): never write the essay for her. Offer outlines, feedback on drafts, and questions that push her thinking. If she pastes a draft, ask what kind of feedback she wants (structure, clarity, argument, grammar) before diving in.\n- For research: help her find and evaluate sources; remind her to cite. Don't fabricate citations or facts — if you're unsure, say so.\n- For test prep: quiz her, explain misses, repeat what she's still shaky on.\n\n**Hard rules:**\n\n- Never write a paper she'll submit as her own.\n- Never give \"just the answer\" to graded homework. If she insists, ask why she doesn't want to work through it — sometimes the issue is time pressure or confusion you can address.\n- If she asks you to help with something the school clearly forbids (writing essays, doing assessments for her), gently decline and offer to help in a way that's allowed.\n\n**Example situations:**\n\n- \"I don't get this math problem\" → ask her to read the problem aloud (or paste it), ask what she's tried, find the specific spot she's stuck, and unblock just that.\n- \"Can you write my essay on X?\" → no, but offer to brainstorm angles, sketch an outline, or give feedback on drafts.\n- \"Quiz me on the French Revolution\" → ask what she needs to know (dates? causes? key figures?); start easy, ramp up.\n\n<!-- PLACEHOLDER: add Joce's classes, teachers' expectations or grading style, recurring assignment formats, and her usual stuck-points. -->`,\n\n  'nana-personal': `You are Bruce, Nana's personal assistant in \\`#nana-personal\\`.\n\n**Audience:** Nana only. Private channel for her personal tasks, planning, and thinking — separate from her CPS business work in \\`#cps\\`.\n\n**Tone:** warm, respectful, attentive. Match her register. Be patient with longer messages.\n\n**Behavior:**\n\n- Respond to every message (\\`always\\`).\n- Default to asking what kind of help she wants (think it through, draft something, look something up) before launching in.\n- For tasks: be concrete and step-oriented. Offer to break things down rather than dumping a wall of options.\n- For personal questions or reflection: listen first, advise only if asked.\n- Keep things from this channel out of \\`#cps\\` and shared channels.\n- For anything health-related, share what you know but always point her to her doctor or pharmacist.\n\n**Example situations:**\n\n- \"Help me plan my week\" → ask what's already on the calendar and what she's trying to fit in; suggest a layout, not a strict schedule.\n- \"I'm trying to learn how to use [tool/app]\" → walk her through it patiently, one step at a time, check understanding before moving on.\n- \"Draft a message to my friend about [thing]\" → ask the tone she wants and any context, then draft a couple of versions.\n\n<!-- PLACEHOLDER: add Nana's recurring commitments, interests, communication preferences, and any context she wants Bruce to remember between conversations. -->`,\n};\n\n// ---------------------------------------------------------------------------\n// Parse incoming message. Upstream is Fetch user Preference (Postgres) whose\n// output is a preference row — reach back to Unwrap Body for the raw payload.\n// ---------------------------------------------------------------------------\nconst msg = $('Unwrap Body').first().json;\n\nconst channelName = msg.channel_name || '';\nconst channelId   = msg.channel_id   || '';\nconst messageId   = msg.id           || '';\nconst userId      = (msg.author && msg.author.id) || '';\nconst userName    = (msg.author && msg.author.username) || '';\nconst content     = (msg.content || '').trim();\nconst mentions    = (msg.mentions || []).map(m => m.id || m);\nconst isThread    = msg.is_thread === true;\nconst threadId    = msg.thread_id || '';\nconst threadName  = msg.thread_name || '';\n\nconst botMentioned = mentions.includes(BOT_USER_ID);\nconst isReplyToBot =\n  msg.referenced_message &&\n  msg.referenced_message.author &&\n  msg.referenced_message.author.id === BOT_USER_ID;\n\nconst route = ROUTING[channelName] || { behavior: 'read-only', persona: null, model: null, historyScope: 'user' };\n\n// Attachment visibility — hoisted so both the empty-content guard and\n// contentForPersist can read it without re-querying Merge Attachment Branches.\nlet hasAttachments = false;\ntry {\n  const merged = $('Merge Attachment Branches').first().json;\n  hasAttachments = Array.isArray(merged && merged.content_blocks) && merged.content_blocks.length > 0;\n} catch (_) { /* merge node absent — assume no attachments */ }\n\n// ---------------------------------------------------------------------------\n// Command detection\n// ---------------------------------------------------------------------------\nlet commandType  = 'none';\nlet useNewModel  = null;\nlet useReset     = false;\nlet useReply     = null;\n\nlet rememberText = null;\nlet forgetId     = null;\nlet imagePrompt  = null;\nlet imageHd      = false;\nlet searchQuery  = null;\nlet commandReply = null;   // pre-formatted confirmation text (use/forget/remember)\n\nconst CMD_RE = /^\\/(use|remember|forget|memories|clear|image|search)(?:\\s+([\\s\\S]*))?$/i;\nconst m = content.match(CMD_RE);\nif (m) {\n  const cmd = m[1].toLowerCase();\n  const arg = (m[2] || '').trim();\n\n  if (cmd === 'use') {\n    commandType = 'use';\n    if (!arg) {\n      commandReply = 'Usage: `/use <model>` — shortcuts: `haiku`, `sonnet`, `opus`, `opus6`. Or `/use default` to reset to this channel\\'s default.';\n      commandType = 'reply-only';\n    } else if (arg.toLowerCase() === 'default') {\n      useReset = true;\n      const resetTo = route.model || DEFAULT_MODEL;\n      commandReply = `Reset — using the channel default for #${channelName}: \\`${resetTo}\\`.`;\n    } else {\n      const lower = arg.toLowerCase();\n      useNewModel = MODEL_SHORTCUTS[lower] || arg;\n      commandReply = `Switched to \\`${useNewModel}\\` in this channel. Use \\`/use default\\` to reset.`;\n    }\n  } else if (cmd === 'remember') {\n    commandType = 'remember';\n    if (!arg) {\n      commandReply = 'Usage: `/remember <text>` — Bruce will recall this in every reply in this channel.';\n      commandType = 'reply-only';\n    } else {\n      rememberText = arg;\n      commandReply = `Got it. I'll remember that in #${channelName}.`;\n    }\n  } else if (cmd === 'forget') {\n    commandType = 'forget';\n    const asNum = parseInt(arg, 10);\n    if (!arg || Number.isNaN(asNum)) {\n      commandReply = 'Usage: `/forget <id>` — run `/memories` to see your memory IDs.';\n      commandType = 'reply-only';\n    } else {\n      forgetId = asNum;\n      commandReply = `Forgot memory \\`#${forgetId}\\` (if it was yours).`;\n    }\n  } else if (cmd === 'memories') {\n    commandType = 'memories';\n  } else if (cmd === 'clear') {\n    commandType = 'clear';\n    const scopeLabel = isThread ? 'this thread' : `#${channelName}`;\n    commandReply = `Cleared conversation history for ${scopeLabel}. (Memories and model preferences are untouched.)`;\n  } else if (cmd === 'image') {\n    commandType = 'image';\n    const hdMatch = arg.match(/^(?:--hd|-hd)\\s+([\\s\\S]+)$/i);\n    if (hdMatch) {\n      imageHd = true;\n      imagePrompt = hdMatch[1].trim();\n    } else {\n      imagePrompt = arg;\n    }\n    // Empty-prompt case is handled downstream by \"Build Replicate Input\"\n    // so the error reply can be tailored based on whether the user also\n    // attached a reference image (img2img vs t2i usage help).\n  } else if (cmd === 'search') {\n    commandType = 'search';\n    searchQuery = arg;\n    if (!searchQuery) {\n      commandReply = 'Usage: `/search <query>` — Bruce will web-search and summarize with citations.';\n      commandType = 'reply-only';\n    }\n  }\n}\n\n// ---------------------------------------------------------------------------\n// Response gating (only applied when no command matched)\n// ---------------------------------------------------------------------------\nlet shouldRespond = false;\nif (commandType === 'none') {\n  if (route.behavior === 'always')       shouldRespond = true;\n  if (route.behavior === 'mention-only') shouldRespond = botMentioned || isReplyToBot;\n  if (route.behavior === 'read-only')    shouldRespond = false;\n}\n\n// Empty-content guard: don't call Claude on messages with no text and no\n// attachments. Anthropic rejects empty user content, and the failed turn\n// poisons future requests via conversation history.\nif (shouldRespond && commandType === 'none' && content.length === 0 && !hasAttachments) {\n  shouldRespond = false;\n}\n\n// ---------------------------------------------------------------------------\n// Resolve effective model: user preference > channel default > fallback\n// ---------------------------------------------------------------------------\nlet userPreference = null;\ntry {\n  const prefItems = $('Fetch user Preference').all();\n  if (prefItems.length && prefItems[0].json && prefItems[0].json.model) {\n    userPreference = prefItems[0].json.model;\n  }\n} catch (_) { /* node absent — ignore */ }\n\nconst modelDefault = route.model || DEFAULT_MODEL;\nconst model        = userPreference || modelDefault;\n\n// ---------------------------------------------------------------------------\n// Memory scope: thread memories are scoped to thread_id, otherwise channel_id.\n// memoryScopeId is the value queried against user_memories.channel_id for\n// scope='channel' rows, so that a thread gets its own memory scope.\n// ---------------------------------------------------------------------------\nconst memoryScopeId   = isThread ? threadId   : channelId;\nconst memoryScopeName = isThread ? threadName : channelName;\n\n// ---------------------------------------------------------------------------\n// contentForPersist: what Persist User Message stores. Image-only messages\n// have content === '' which previously caused Anthropic's\n// \"messages.N: user messages must have non-empty content\" on the NEXT turn\n// when the empty row replayed. Substitute a marker when attachments exist so\n// the row is still informative on later turns.\n// ---------------------------------------------------------------------------\nconst contentForPersist = content.length > 0\n  ? content\n  : (hasAttachments ? '[shared an image or file]' : '');\n\n// historyScope drives Fetch Conversation History's user filter AND the\n// speaker-name prefixing in Build Claude Request.\nconst historyScope = route.historyScope || 'user';\n\nreturn [{\n  json: {\n    // routing\n    shouldRespond,\n    commandType,\n    channelId,\n    channelName,\n    messageId,\n    userId,\n    userName,\n    content,\n    contentForPersist,\n    isThread,\n    threadId,\n    threadName,\n    memoryScopeId,\n    memoryScopeName,\n    behavior: route.behavior,\n    persona: route.persona,\n    historyScope,\n    systemPrompt: route.persona ? (PERSONAS[route.persona] || '') : '',\n\n    // model selection\n    model,\n    modelDefault,\n    userPreference,\n\n    // command outputs\n    useNewModel,\n    useReset,\n    useReply: commandReply,   // alias retained for the existing Reply /use node\n    rememberText,\n    forgetId,\n    imagePrompt,\n    imageHd,\n    searchQuery,\n    commandReply,\n\n    // constants exposed for downstream Discord nodes\n    guildId: GUILD_ID,\n    botUserId: BOT_USER_ID,\n  }\n}];"
       },
       "id": "00bdd7d6-fa14-47b2-93a1-8974b7e03528",
       "name": "Channel Router",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-1120, 80]
+      "position": [
+        -1120,
+        80
+      ]
     },
     {
       "parameters": {
@@ -155,9 +193,22 @@
           "values": [
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
-                  { "id": "sw-use",       "leftValue": "={{ $json.commandType }}", "rightValue": "use",       "operator": { "type": "string", "operation": "equals" } }
+                  {
+                    "id": "sw-use",
+                    "leftValue": "={{ $json.commandType }}",
+                    "rightValue": "use",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
                 ],
                 "combinator": "and"
               },
@@ -166,9 +217,22 @@
             },
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
-                  { "id": "sw-remember",  "leftValue": "={{ $json.commandType }}", "rightValue": "remember",  "operator": { "type": "string", "operation": "equals" } }
+                  {
+                    "id": "sw-remember",
+                    "leftValue": "={{ $json.commandType }}",
+                    "rightValue": "remember",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
                 ],
                 "combinator": "and"
               },
@@ -177,9 +241,22 @@
             },
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
-                  { "id": "sw-forget",    "leftValue": "={{ $json.commandType }}", "rightValue": "forget",    "operator": { "type": "string", "operation": "equals" } }
+                  {
+                    "id": "sw-forget",
+                    "leftValue": "={{ $json.commandType }}",
+                    "rightValue": "forget",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
                 ],
                 "combinator": "and"
               },
@@ -188,9 +265,22 @@
             },
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
-                  { "id": "sw-memories",  "leftValue": "={{ $json.commandType }}", "rightValue": "memories",  "operator": { "type": "string", "operation": "equals" } }
+                  {
+                    "id": "sw-memories",
+                    "leftValue": "={{ $json.commandType }}",
+                    "rightValue": "memories",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
                 ],
                 "combinator": "and"
               },
@@ -199,9 +289,46 @@
             },
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
-                  { "id": "sw-image",     "leftValue": "={{ $json.commandType }}", "rightValue": "image",     "operator": { "type": "string", "operation": "equals" } }
+                  {
+                    "id": "sw-clear",
+                    "leftValue": "={{ $json.commandType }}",
+                    "rightValue": "clear",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "clear"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sw-image",
+                    "leftValue": "={{ $json.commandType }}",
+                    "rightValue": "image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
                 ],
                 "combinator": "and"
               },
@@ -210,9 +337,22 @@
             },
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
-                  { "id": "sw-search",    "leftValue": "={{ $json.commandType }}", "rightValue": "search",    "operator": { "type": "string", "operation": "equals" } }
+                  {
+                    "id": "sw-search",
+                    "leftValue": "={{ $json.commandType }}",
+                    "rightValue": "search",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
                 ],
                 "combinator": "and"
               },
@@ -221,9 +361,22 @@
             },
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
-                  { "id": "sw-reply",     "leftValue": "={{ $json.commandType }}", "rightValue": "reply-only","operator": { "type": "string", "operation": "equals" } }
+                  {
+                    "id": "sw-reply",
+                    "leftValue": "={{ $json.commandType }}",
+                    "rightValue": "reply-only",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
                 ],
                 "combinator": "and"
               },
@@ -232,21 +385,39 @@
             }
           ]
         },
-        "options": { "fallbackOutput": "extra", "renameFallbackOutput": "none" }
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "none"
+        }
       },
       "id": "11000000-0000-0000-0000-000000000001",
       "name": "Command Switch",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [-896, 80]
+      "position": [
+        -896,
+        80
+      ]
     },
-
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
           "conditions": [
-            { "id": "if-use-reset", "leftValue": "={{ $json.useReset }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+            {
+              "id": "if-use-reset",
+              "leftValue": "={{ $json.useReset }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
           ],
           "combinator": "and"
         },
@@ -254,7 +425,10 @@
       },
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
-      "position": [-672, -288],
+      "position": [
+        -672,
+        -288
+      ],
       "id": "21741b26-3253-470e-8255-6238887b90b0",
       "name": "Is /use reset?"
     },
@@ -266,10 +440,18 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [-448, -384],
+      "position": [
+        -448,
+        -384
+      ],
       "id": "6ca661ac-ab15-4b27-b187-f06951874842",
       "name": "Reset User Preference",
-      "credentials": { "postgres": { "id": "EHBRO07aceirmFzt", "name": "Household Postgres" } }
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -279,28 +461,51 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [-448, -192],
+      "position": [
+        -448,
+        -192
+      ],
       "id": "32f2e1e4-8085-4f72-ab94-093b9f6307c7",
       "name": "Save User Preference",
-      "credentials": { "postgres": { "id": "EHBRO07aceirmFzt", "name": "Household Postgres" } }
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
     },
     {
       "parameters": {
         "resource": "message",
-        "guildId": { "__rl": true, "value": "1495249842778148954", "mode": "id" },
-        "channelId": { "__rl": true, "value": "={{ $('Channel Router').first().json.channelId }}", "mode": "id" },
+        "guildId": {
+          "__rl": true,
+          "value": "1495249842778148954",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Channel Router').first().json.channelId }}",
+          "mode": "id"
+        },
         "content": "={{ $('Channel Router').first().json.commandReply }}",
         "options": {}
       },
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [-128, -288],
+      "position": [
+        -128,
+        -288
+      ],
       "id": "96a86cd6-7f57-4ee5-8dca-a3edccba584a",
       "name": "Reply /use Confirmation",
       "webhookId": "49846563-670a-47fb-a4d6-d6233cf5f7b8",
-      "credentials": { "discordBotApi": { "id": "om7VabWMiA8gC2i3", "name": "Discord Bot account" } }
+      "credentials": {
+        "discordBotApi": {
+          "id": "om7VabWMiA8gC2i3",
+          "name": "Discord Bot account"
+        }
+      }
     },
-
     {
       "parameters": {
         "operation": "executeQuery",
@@ -309,12 +514,19 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [-448, 80],
+      "position": [
+        -448,
+        80
+      ],
       "id": "21000000-0000-0000-0000-000000000001",
       "name": "Save User Memory",
-      "credentials": { "postgres": { "id": "EHBRO07aceirmFzt", "name": "Household Postgres" } }
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
     },
-
     {
       "parameters": {
         "operation": "executeQuery",
@@ -323,12 +535,19 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [-448, 272],
+      "position": [
+        -448,
+        272
+      ],
       "id": "22000000-0000-0000-0000-000000000001",
       "name": "Delete User Memory",
-      "credentials": { "postgres": { "id": "EHBRO07aceirmFzt", "name": "Household Postgres" } }
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
     },
-
     {
       "parameters": {
         "operation": "executeQuery",
@@ -337,11 +556,19 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [-448, 464],
+      "position": [
+        -448,
+        464
+      ],
       "id": "23000000-0000-0000-0000-000000000001",
       "name": "List User Memories",
       "alwaysOutputData": true,
-      "credentials": { "postgres": { "id": "EHBRO07aceirmFzt", "name": "Household Postgres" } }
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -349,44 +576,77 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-224, 464],
+      "position": [
+        -224,
+        464
+      ],
       "id": "24000000-0000-0000-0000-000000000001",
       "name": "Format Memories List"
     },
-
     {
       "parameters": {
         "resource": "message",
-        "guildId": { "__rl": true, "value": "1495249842778148954", "mode": "id" },
-        "channelId": { "__rl": true, "value": "={{ $('Channel Router').first().json.channelId }}", "mode": "id" },
+        "guildId": {
+          "__rl": true,
+          "value": "1495249842778148954",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Channel Router').first().json.channelId }}",
+          "mode": "id"
+        },
         "content": "={{ $('Channel Router').first().json.commandReply }}",
         "options": {}
       },
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [-128, 80],
+      "position": [
+        -128,
+        80
+      ],
       "id": "25000000-0000-0000-0000-000000000001",
       "name": "Reply Command Confirmation",
       "webhookId": "a5b5d330-4201-4a2e-8efe-1d20ae7e3d50",
-      "credentials": { "discordBotApi": { "id": "om7VabWMiA8gC2i3", "name": "Discord Bot account" } }
+      "credentials": {
+        "discordBotApi": {
+          "id": "om7VabWMiA8gC2i3",
+          "name": "Discord Bot account"
+        }
+      }
     },
     {
       "parameters": {
         "resource": "message",
-        "guildId": { "__rl": true, "value": "1495249842778148954", "mode": "id" },
-        "channelId": { "__rl": true, "value": "={{ $('Channel Router').first().json.channelId }}", "mode": "id" },
+        "guildId": {
+          "__rl": true,
+          "value": "1495249842778148954",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Channel Router').first().json.channelId }}",
+          "mode": "id"
+        },
         "content": "={{ $json.commandReply }}",
         "options": {}
       },
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [0, 464],
+      "position": [
+        0,
+        464
+      ],
       "id": "26000000-0000-0000-0000-000000000001",
       "name": "Reply Memories List",
       "webhookId": "b1c8a710-2201-4b29-9b1e-d4e8a7c93abe",
-      "credentials": { "discordBotApi": { "id": "om7VabWMiA8gC2i3", "name": "Discord Bot account" } }
+      "credentials": {
+        "discordBotApi": {
+          "id": "om7VabWMiA8gC2i3",
+          "name": "Discord Bot account"
+        }
+      }
     },
-
     {
       "parameters": {
         "jsCode": "// Build the Replicate API input payload for /image, auto-detecting img2img.\n//\n// Upstream refs:\n//   Channel Router             — imagePrompt, imageHd, channelId, etc.\n//   Merge Attachment Branches  — content_blocks (resolved uploads from Fetch Attachment)\n//\n// Behavior:\n//   - /image <prompt>              → text-to-image, flux-schnell\n//   - /image --hd <prompt>         → text-to-image, flux-pro\n//   - /image <prompt>   + image    → image-to-image, flux-schnell (prompt_strength 0.8)\n//   - /image --hd <prompt> + image → image-to-image, FALLBACK to flux-schnell.\n//       Reason: flux-pro's img2img support via Replicate's model endpoint has\n//       been inconsistent; flux-schnell reliably accepts the `image` input.\n//       flux-dev would be the other fallback but isn't wired in the current\n//       workflow. If/when flux-pro img2img is verified working, flip this.\n//   - PDF attachments are ignored in the image branch.\n//   - Multiple images: use the first only.\n//   - Empty prompt: return error=need_prompt so the downstream IF can reply\n//     with usage help instead of calling Replicate.\nconst router = $('Channel Router').first().json;\nconst contentBlocks = ($('Merge Attachment Branches').first().json || {}).content_blocks || [];\nconst firstImage = contentBlocks.find(b => b && b.type === 'image') || null;\n\nconst prompt = (router.imagePrompt || '').trim();\nconst isHd = router.imageHd === true;\nconst isImg2Img = !!firstImage;\n\nif (prompt.length === 0) {\n  const replyText = isImg2Img\n    ? 'Please include a prompt describing what you want to generate from the reference image. Example: `/image a watercolor painting` with your photo attached.'\n    : 'Usage: `/image <prompt>` — add `--hd` at the start for a slower, higher-quality render.';\n  return [{\n    json: {\n      ...router,\n      error: 'need_prompt',\n      commandReply: replyText,\n    }\n  }];\n}\n\nlet replicateModel;\nlet hdFallbackNote = '';\nif (isImg2Img && isHd) {\n  replicateModel = 'flux-schnell';\n  hdFallbackNote = ' _(used Flux Schnell — `--hd` is text-only)_';\n} else if (isHd) {\n  replicateModel = 'flux-pro';\n} else {\n  replicateModel = 'flux-schnell';\n}\n\nconst input = { prompt, output_format: 'png' };\nif (isImg2Img) {\n  input.image = `data:${firstImage.source.media_type};base64,${firstImage.source.data}`;\n  input.prompt_strength = 0.8;\n}\n\nreturn [{\n  json: {\n    ...router,\n    replicateModel,\n    replicateInput: input,\n    isImg2Img,\n    isHd,\n    imagePrompt: prompt,\n    hdFallbackNote,\n  }\n}];"
@@ -395,18 +655,29 @@
       "name": "Build Replicate Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-720, 656]
+      "position": [
+        -720,
+        656
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 3 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
           "conditions": [
             {
               "id": "need-prompt",
               "leftValue": "={{ $json.error }}",
               "rightValue": "need_prompt",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "and"
@@ -417,13 +688,24 @@
       "name": "Need Prompt?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
-      "position": [-576, 656]
+      "position": [
+        -576,
+        656
+      ]
     },
     {
       "parameters": {
         "resource": "message",
-        "guildId": { "__rl": true, "value": "1495249842778148954", "mode": "id" },
-        "channelId": { "__rl": true, "value": "={{ $json.channelId }}", "mode": "id" },
+        "guildId": {
+          "__rl": true,
+          "value": "1495249842778148954",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $json.channelId }}",
+          "mode": "id"
+        },
         "content": "={{ $json.commandReply }}",
         "options": {}
       },
@@ -431,9 +713,17 @@
       "name": "Reply Image Usage",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [-448, 816],
+      "position": [
+        -448,
+        816
+      ],
       "webhookId": "c2d9a714-3401-4b29-9b1e-e5f9b7c93abe",
-      "credentials": { "discordBotApi": { "id": "om7VabWMiA8gC2i3", "name": "Discord Bot account" } }
+      "credentials": {
+        "discordBotApi": {
+          "id": "om7VabWMiA8gC2i3",
+          "name": "Discord Bot account"
+        }
+      }
     },
     {
       "parameters": {
@@ -442,19 +732,33 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Token {{ $env.REPLICATE_API_TOKEN }}" },
-            { "name": "Content-Type",  "value": "application/json" },
-            { "name": "Prefer",        "value": "wait=55" }
+            {
+              "name": "Authorization",
+              "value": "=Token {{ $env.REPLICATE_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "wait=55"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ input: $json.replicateInput }) }}",
-        "options": { "timeout": 120000 }
+        "options": {
+          "timeout": 120000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-320, 656],
+      "position": [
+        -320,
+        656
+      ],
       "id": "30000000-0000-0000-0000-000000000001",
       "name": "Call Replicate"
     },
@@ -464,27 +768,45 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-224, 656],
+      "position": [
+        -224,
+        656
+      ],
       "id": "31000000-0000-0000-0000-000000000001",
       "name": "Parse Replicate Reply"
     },
     {
       "parameters": {
         "resource": "message",
-        "guildId": { "__rl": true, "value": "1495249842778148954", "mode": "id" },
-        "channelId": { "__rl": true, "value": "={{ $json.channelId }}", "mode": "id" },
+        "guildId": {
+          "__rl": true,
+          "value": "1495249842778148954",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $json.channelId }}",
+          "mode": "id"
+        },
         "content": "={{ $json.commandReply }}",
         "options": {}
       },
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [0, 656],
+      "position": [
+        0,
+        656
+      ],
       "id": "32000000-0000-0000-0000-000000000001",
       "name": "Reply Image",
       "webhookId": "c2d9a714-3401-4b29-9b1e-d4e8a7c93abe",
-      "credentials": { "discordBotApi": { "id": "om7VabWMiA8gC2i3", "name": "Discord Bot account" } }
+      "credentials": {
+        "discordBotApi": {
+          "id": "om7VabWMiA8gC2i3",
+          "name": "Discord Bot account"
+        }
+      }
     },
-
     {
       "parameters": {
         "method": "POST",
@@ -492,18 +814,29 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{ $env.PERPLEXITY_API_KEY }}" },
-            { "name": "Content-Type",  "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.PERPLEXITY_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ model: 'sonar', messages: [{ role: 'user', content: $json.searchQuery }], return_citations: true }) }}",
-        "options": { "timeout": 60000 }
+        "options": {
+          "timeout": 60000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-448, 848],
+      "position": [
+        -448,
+        848
+      ],
       "id": "40000000-0000-0000-0000-000000000001",
       "name": "Call Perplexity"
     },
@@ -513,33 +846,63 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-224, 848],
+      "position": [
+        -224,
+        848
+      ],
       "id": "41000000-0000-0000-0000-000000000001",
       "name": "Parse Perplexity Reply"
     },
     {
       "parameters": {
         "resource": "message",
-        "guildId": { "__rl": true, "value": "1495249842778148954", "mode": "id" },
-        "channelId": { "__rl": true, "value": "={{ $json.channelId }}", "mode": "id" },
+        "guildId": {
+          "__rl": true,
+          "value": "1495249842778148954",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $json.channelId }}",
+          "mode": "id"
+        },
         "content": "={{ $json.commandReply }}",
         "options": {}
       },
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [0, 848],
+      "position": [
+        0,
+        848
+      ],
       "id": "42000000-0000-0000-0000-000000000001",
       "name": "Reply Search",
       "webhookId": "d3e9a714-4501-4b29-9b1e-d4e8a7c93abe",
-      "credentials": { "discordBotApi": { "id": "om7VabWMiA8gC2i3", "name": "Discord Bot account" } }
+      "credentials": {
+        "discordBotApi": {
+          "id": "om7VabWMiA8gC2i3",
+          "name": "Discord Bot account"
+        }
+      }
     },
-
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
           "conditions": [
-            { "id": "cond-should-respond", "leftValue": "={{ $json.shouldRespond }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+            {
+              "id": "cond-should-respond",
+              "leftValue": "={{ $json.shouldRespond }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
           ],
           "combinator": "and"
         },
@@ -549,21 +912,32 @@
       "name": "Should Respond?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [-672, 1040]
+      "position": [
+        -672,
+        1040
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT role, content, created_at\nFROM discord_conversations\nWHERE discord_user_id = '{{ $('Channel Router').first().json.userId }}'\n  AND {{ $('Channel Router').first().json.isThread ? \"thread_id = '\" + $('Channel Router').first().json.threadId + \"'\" : \"channel_id = '\" + $('Channel Router').first().json.channelId + \"' AND thread_id IS NULL\" }}\nORDER BY created_at DESC\nLIMIT 20;",
+        "query": "SELECT role, content, discord_user_id, discord_username, created_at\nFROM discord_conversations\nWHERE {{ $('Channel Router').first().json.historyScope === 'user' ? \"discord_user_id = '\" + $('Channel Router').first().json.userId + \"' AND \" : '' }}{{ $('Channel Router').first().json.isThread ? \"thread_id = '\" + $('Channel Router').first().json.threadId + \"'\" : \"channel_id = '\" + $('Channel Router').first().json.channelId + \"' AND thread_id IS NULL\" }}\nORDER BY created_at DESC\nLIMIT 20;",
         "options": {}
       },
       "id": "ce3cafbb-2902-4c53-8eab-4f1347230a92",
       "name": "Fetch Conversation History",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [-448, 960],
+      "position": [
+        -448,
+        960
+      ],
       "alwaysOutputData": true,
-      "credentials": { "postgres": { "id": "EHBRO07aceirmFzt", "name": "Household Postgres" } }
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -575,19 +949,30 @@
       "name": "Fetch User Memories",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [-224, 960],
+      "position": [
+        -224,
+        960
+      ],
       "alwaysOutputData": true,
-      "credentials": { "postgres": { "id": "EHBRO07aceirmFzt", "name": "Household Postgres" } }
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "// Build the Anthropic /v1/messages request body.\n//\n// Upstream wiring:\n//   Fetch Conversation History (Postgres) — newest-first rows, we reverse\n//   Fetch User Memories (Postgres)        — oldest-first rows, we inject as system-prompt facts\n//   Channel Router                         — persona, model, identity\n//   Merge Attachment Branches              — carries content_blocks (images/PDFs) forward\n//\n// This node is downstream of \"Fetch User Memories\" so $input.all() returns\n// the memory rows. Conversation history comes through $('Fetch Conversation History').\nconst router    = $('Channel Router').first().json;\nconst historyRows = $('Fetch Conversation History').all()\n  .map(i => i.json)\n  .reverse()\n  .filter(r => r && (r.role === 'user' || r.role === 'assistant'));\nconst memoryRows  = $input.all()\n  .map(i => i.json)\n  .filter(r => r && r.content);\n\n// Memory block — injected into system prompt if there are any.\nlet memoryBlock = '';\nif (memoryRows.length) {\n  const bullets = memoryRows.map(r => `- ${r.content}`).join('\\n');\n  memoryBlock = `\\n\\n<long_term_memory>\\nThe user has asked you to remember these facts. Use them in your reply when relevant; do not quote them back verbatim unless asked.\\n${bullets}\\n</long_term_memory>`;\n}\n\nconst systemPrompt = (router.systemPrompt || '') + memoryBlock;\n\nconst messages = historyRows.map(r => ({ role: r.role, content: r.content }));\n\n// Pull image/PDF content blocks forwarded by Merge Attachment Branches.\n// Empty array when the user didn't upload anything (false branch of Has\n// Attachments injects content_blocks: []).\nlet contentBlocks = [];\ntry {\n  const merged = $('Merge Attachment Branches').first().json;\n  contentBlocks = Array.isArray(merged && merged.content_blocks) ? merged.content_blocks : [];\n} catch (_) { /* merge node absent — ignore */ }\n\nconst userText = router.content || '';\nconst fallbackText = 'Please analyze the attached file(s).';\nconst textToSend = userText.trim().length > 0\n  ? userText\n  : (contentBlocks.length > 0 ? fallbackText : '');\n\n// When attachments are present, Anthropic expects a content-block array\n// (images/docs first, text last). Otherwise keep the legacy string form so\n// downstream shape is unchanged for the text-only path.\nconst userContent = contentBlocks.length > 0\n  ? [...contentBlocks, { type: 'text', text: textToSend }]\n  : textToSend;\n\nmessages.push({ role: 'user', content: userContent });\n\nreturn [{\n  json: {\n    ...router,\n    memoryCount: memoryRows.length,\n    attachmentCount: contentBlocks.length,\n    requestBody: {\n      model: router.model || $env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',\n      max_tokens: 1024,\n      system: systemPrompt,\n      messages,\n    },\n  }\n}];"
+        "jsCode": "// Build the Anthropic /v1/messages request body.\n//\n// Upstream wiring:\n//   Fetch Conversation History (Postgres) — newest-first rows, we reverse\n//   Fetch User Memories (Postgres)        — oldest-first rows, we inject as system-prompt facts\n//   Channel Router                         — persona, model, identity, historyScope, userName\n//   Merge Attachment Branches              — carries content_blocks (images/PDFs) forward\n//\n// This node is downstream of \"Fetch User Memories\" so $input.all() returns\n// the memory rows. Conversation history comes through $('Fetch Conversation History').\n//\n// Speaker attribution: when router.historyScope === 'channel' (shared\n// channels like #food, #family, etc.) we prefix user turns with the\n// speaker's display name so Claude can tell speakers apart. Assistant turns\n// are never prefixed (Bruce always speaks as Bruce).\n//\n// Defensive filter: history rows with empty content are dropped. This\n// guards against legacy image-only rows stored with content='' before\n// Channel Router's contentForPersist was introduced.\nconst router = $('Channel Router').first().json;\nconst isShared = router.historyScope === 'channel';\n\nconst historyRows = $('Fetch Conversation History').all()\n  .map(i => i.json)\n  .reverse()\n  .filter(r => r && (r.role === 'user' || r.role === 'assistant'))\n  .filter(r => r.content != null && String(r.content).trim().length > 0);\nconst memoryRows  = $input.all()\n  .map(i => i.json)\n  .filter(r => r && r.content);\n\n// Memory block — injected into system prompt if there are any.\nlet memoryBlock = '';\nif (memoryRows.length) {\n  const bullets = memoryRows.map(r => `- ${r.content}`).join('\\n');\n  memoryBlock = `\\n\\n<long_term_memory>\\nThe user has asked you to remember these facts. Use them in your reply when relevant; do not quote them back verbatim unless asked.\\n${bullets}\\n</long_term_memory>`;\n}\n\n// Shared-channel note: tell Claude that user turns are prefixed.\nconst sharedNote = isShared\n  ? `\\n\\n<channel_context>\\nThis is a shared channel with multiple people. Each user turn is prefixed with the speaker's name (e.g. \"Jake: ...\"). Address people by name when appropriate. Your own replies are not prefixed.\\n</channel_context>`\n  : '';\n\n// Current date/time in household timezone. Injected so Bruce always knows\n// the day/time without the user having to say.\nconst now = new Date();\nconst dateStr = now.toLocaleString('en-US', {\n  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',\n  hour: 'numeric', minute: '2-digit',\n  timeZone: 'America/New_York',\n  timeZoneName: 'short',\n});\nconst dateBlock = `\\n\\n<current_time>\\nIt is currently ${dateStr}.\\n</current_time>`;\n\nconst systemPrompt = (router.systemPrompt || '') + memoryBlock + sharedNote + dateBlock;\n\n// Speaker prefix helper — pre-migration rows have NULL discord_username, so\n// fall back to a short user-id tag.\nfunction labelUser(r) {\n  const name = r.discord_username\n    || (r.discord_user_id ? `user-${String(r.discord_user_id).slice(-4)}` : 'someone');\n  return `${name}: ${r.content}`;\n}\n\nconst messages = historyRows.map(r => {\n  if (isShared && r.role === 'user') {\n    return { role: 'user', content: labelUser(r) };\n  }\n  return { role: r.role, content: r.content };\n});\n\n// Pull image/PDF content blocks forwarded by Merge Attachment Branches.\n// Empty array when the user didn't upload anything (false branch of Has\n// Attachments injects content_blocks: []).\nlet contentBlocks = [];\ntry {\n  const merged = $('Merge Attachment Branches').first().json;\n  contentBlocks = Array.isArray(merged && merged.content_blocks) ? merged.content_blocks : [];\n} catch (_) { /* merge node absent — ignore */ }\n\nconst userText = router.content || '';\nconst fallbackText = 'Please analyze the attached file(s).';\nconst baseText = userText.trim().length > 0\n  ? userText\n  : (contentBlocks.length > 0 ? fallbackText : '');\n\n// In shared channels, prefix the CURRENT user's turn too so Claude can\n// attribute the live question.\nconst currentText = (isShared && baseText.length > 0)\n  ? `${router.userName || 'someone'}: ${baseText}`\n  : baseText;\n\n// When attachments are present, Anthropic expects a content-block array\n// (images/docs first, text last). Otherwise keep the legacy string form so\n// downstream shape is unchanged for the text-only path.\nconst userContent = contentBlocks.length > 0\n  ? [...contentBlocks, { type: 'text', text: currentText }]\n  : currentText;\n\nmessages.push({ role: 'user', content: userContent });\n\nreturn [{\n  json: {\n    ...router,\n    memoryCount: memoryRows.length,\n    attachmentCount: contentBlocks.length,\n    historyRowCount: historyRows.length,\n    requestBody: {\n      model: router.model || $env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',\n      max_tokens: 1024,\n      system: systemPrompt,\n      messages,\n    },\n  }\n}];\n"
       },
       "id": "1a1b0b86-225c-4921-91b1-075f722f5b5b",
       "name": "Build Claude Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [0, 960]
+      "position": [
+        0,
+        960
+      ]
     },
     {
       "parameters": {
@@ -596,21 +981,35 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-api-key",         "value": "={{ $env.ANTHROPIC_API_KEY }}" },
-            { "name": "anthropic-version", "value": "2023-06-01" },
-            { "name": "content-type",      "value": "application/json" }
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
-        "options": { "timeout": 60000 }
+        "options": {
+          "timeout": 60000
+        }
       },
       "id": "1a5b7340-3b5a-4d26-8fd2-0c40a49e4725",
       "name": "Call Claude",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [224, 960]
+      "position": [
+        224,
+        960
+      ]
     },
     {
       "parameters": {
@@ -620,13 +1019,24 @@
       "name": "Parse Claude Reply",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [448, 960]
+      "position": [
+        448,
+        960
+      ]
     },
     {
       "parameters": {
         "resource": "message",
-        "guildId": { "__rl": true, "value": "1495249842778148954", "mode": "id" },
-        "channelId": { "__rl": true, "value": "={{ $json.isThread ? $json.threadId : $json.channelId }}", "mode": "id" },
+        "guildId": {
+          "__rl": true,
+          "value": "1495249842778148954",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $json.isThread ? $json.threadId : $json.channelId }}",
+          "mode": "id"
+        },
         "content": "={{ $json.replyTruncated }}",
         "options": {}
       },
@@ -634,159 +1044,516 @@
       "name": "Reply on Discord",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [672, 960],
+      "position": [
+        672,
+        960
+      ],
       "webhookId": "f77477f4-6cfe-4593-ba6b-5acee998810c",
-      "credentials": { "discordBotApi": { "id": "om7VabWMiA8gC2i3", "name": "Discord Bot account" } }
+      "credentials": {
+        "discordBotApi": {
+          "id": "om7VabWMiA8gC2i3",
+          "name": "Discord Bot account"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO discord_conversations\n  (message_id, discord_user_id, channel_id, channel_name, thread_id, thread_name, role, content)\nVALUES\n  ('{{ $json.messageId }}',\n   '{{ $json.userId }}',\n   '{{ $json.channelId }}',\n   '{{ $json.channelName }}',\n   {{ $json.isThread ? \"'\" + $json.threadId + \"'\"     : 'NULL' }},\n   {{ $json.isThread ? \"'\" + $json.threadName + \"'\"   : 'NULL' }},\n   'user',\n   '{{ $json.content.replace(/'/g, \"''\") }}')\nON CONFLICT (message_id) DO UPDATE\n  SET content = EXCLUDED.content;",
+        "query": "INSERT INTO discord_conversations\n  (message_id, discord_user_id, discord_username, channel_id, channel_name, thread_id, thread_name, role, content)\nVALUES\n  ('{{ $json.messageId }}',\n   '{{ $json.userId }}',\n   '{{ ($json.userName || '').replace(/'/g, \"''\") }}',\n   '{{ $json.channelId }}',\n   '{{ $json.channelName }}',\n   {{ $json.isThread ? \"'\" + $json.threadId + \"'\"     : 'NULL' }},\n   {{ $json.isThread ? \"'\" + $json.threadName + \"'\"   : 'NULL' }},\n   'user',\n   '{{ ($json.contentForPersist || '').replace(/'/g, \"''\") }}')\nON CONFLICT (message_id) DO UPDATE\n  SET content = EXCLUDED.content,\n      discord_username = EXCLUDED.discord_username;",
         "options": {}
       },
       "id": "2d670e7e-ec76-46fc-af85-4b33fd000901",
       "name": "Persist User Message",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [672, 1152],
-      "credentials": { "postgres": { "id": "EHBRO07aceirmFzt", "name": "Household Postgres" } }
+      "position": [
+        672,
+        1152
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO discord_conversations\n  (message_id, discord_user_id, channel_id, channel_name, thread_id, thread_name, role, content)\nVALUES\n  ('{{ $('Parse Claude Reply').first().json.messageId }}_reply',\n   '{{ $('Parse Claude Reply').first().json.userId }}',\n   '{{ $('Parse Claude Reply').first().json.channelId }}',\n   '{{ $('Parse Claude Reply').first().json.channelName }}',\n   {{ $('Parse Claude Reply').first().json.isThread ? \"'\" + $('Parse Claude Reply').first().json.threadId + \"'\"     : 'NULL' }},\n   {{ $('Parse Claude Reply').first().json.isThread ? \"'\" + $('Parse Claude Reply').first().json.threadName + \"'\" : 'NULL' }},\n   'assistant',\n   '{{ $('Parse Claude Reply').first().json.reply.replace(/'/g, \"''\") }}')\nON CONFLICT (message_id) DO UPDATE\n  SET content = EXCLUDED.content;",
+        "query": "INSERT INTO discord_conversations\n  (message_id, discord_user_id, discord_username, channel_id, channel_name, thread_id, thread_name, role, content)\nVALUES\n  ('{{ $('Parse Claude Reply').first().json.messageId }}_reply',\n   '{{ $('Parse Claude Reply').first().json.userId }}',\n   'Bruce',\n   '{{ $('Parse Claude Reply').first().json.channelId }}',\n   '{{ $('Parse Claude Reply').first().json.channelName }}',\n   {{ $('Parse Claude Reply').first().json.isThread ? \"'\" + $('Parse Claude Reply').first().json.threadId + \"'\"     : 'NULL' }},\n   {{ $('Parse Claude Reply').first().json.isThread ? \"'\" + $('Parse Claude Reply').first().json.threadName + \"'\" : 'NULL' }},\n   'assistant',\n   '{{ $('Parse Claude Reply').first().json.reply.replace(/'/g, \"''\") }}')\nON CONFLICT (message_id) DO UPDATE\n  SET content = EXCLUDED.content,\n      discord_username = EXCLUDED.discord_username;",
         "options": {}
       },
       "id": "e5851681-e225-4d46-8f96-050d537f20b8",
       "name": "Persist Assistant Message",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [896, 1152],
-      "credentials": { "postgres": { "id": "EHBRO07aceirmFzt", "name": "Household Postgres" } }
+      "position": [
+        896,
+        1152
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM discord_conversations\nWHERE {{ $json.isThread ? \"thread_id = '\" + $json.threadId + \"'\" : \"channel_id = '\" + $json.channelId + \"' AND thread_id IS NULL\" }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -448,
+        560
+      ],
+      "id": "27000000-0000-0000-0000-000000000001",
+      "name": "Clear Conversation History",
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
     }
   ],
   "connections": {
     "Webhook (relay in)": {
-      "main": [[{ "node": "Unwrap Body", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Unwrap Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Unwrap Body": {
-      "main": [[{ "node": "Has Attachments", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Has Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Has Attachments": {
       "main": [
-        [{ "node": "Split Attachments",           "type": "main", "index": 0 }],
-        [{ "node": "Inject Empty Content Blocks", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Split Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Inject Empty Content Blocks",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Split Attachments": {
-      "main": [[{ "node": "Fetch Attachment", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Fetch Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Fetch Attachment": {
-      "main": [[{ "node": "Convert to Content Blocks", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Convert to Content Blocks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Convert to Content Blocks": {
-      "main": [[{ "node": "Merge Attachment Branches", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Merge Attachment Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Inject Empty Content Blocks": {
-      "main": [[{ "node": "Merge Attachment Branches", "type": "main", "index": 1 }]]
+      "main": [
+        [
+          {
+            "node": "Merge Attachment Branches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
     },
     "Merge Attachment Branches": {
-      "main": [[{ "node": "Fetch user Preference", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Fetch user Preference",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Fetch user Preference": {
-      "main": [[{ "node": "Channel Router", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Channel Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Channel Router": {
-      "main": [[{ "node": "Command Switch", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Command Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Command Switch": {
       "main": [
-        [{ "node": "Is /use reset?",              "type": "main", "index": 0 }],
-        [{ "node": "Save User Memory",            "type": "main", "index": 0 }],
-        [{ "node": "Delete User Memory",          "type": "main", "index": 0 }],
-        [{ "node": "List User Memories",          "type": "main", "index": 0 }],
-        [{ "node": "Build Replicate Input",       "type": "main", "index": 0 }],
-        [{ "node": "Call Perplexity",             "type": "main", "index": 0 }],
-        [{ "node": "Reply Command Confirmation",  "type": "main", "index": 0 }],
-        [{ "node": "Should Respond?",             "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Is /use reset?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save User Memory",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Delete User Memory",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List User Memories",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Clear Conversation History",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Replicate Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call Perplexity",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply Command Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Should Respond?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-
     "Is /use reset?": {
       "main": [
-        [{ "node": "Reset User Preference", "type": "main", "index": 0 }],
-        [{ "node": "Save User Preference",  "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Reset User Preference",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save User Preference",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Reset User Preference": {
-      "main": [[{ "node": "Reply /use Confirmation", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reply /use Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Save User Preference": {
-      "main": [[{ "node": "Reply /use Confirmation", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reply /use Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-
     "Save User Memory": {
-      "main": [[{ "node": "Reply Command Confirmation", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reply Command Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Delete User Memory": {
-      "main": [[{ "node": "Reply Command Confirmation", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reply Command Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-
     "List User Memories": {
-      "main": [[{ "node": "Format Memories List", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Format Memories List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Format Memories List": {
-      "main": [[{ "node": "Reply Memories List", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reply Memories List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-
     "Build Replicate Input": {
-      "main": [[{ "node": "Need Prompt?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Need Prompt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Need Prompt?": {
       "main": [
-        [{ "node": "Reply Image Usage", "type": "main", "index": 0 }],
-        [{ "node": "Call Replicate",    "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Reply Image Usage",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call Replicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Call Replicate": {
-      "main": [[{ "node": "Parse Replicate Reply", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Parse Replicate Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Parse Replicate Reply": {
-      "main": [[{ "node": "Reply Image", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reply Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-
     "Call Perplexity": {
-      "main": [[{ "node": "Parse Perplexity Reply", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Parse Perplexity Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Parse Perplexity Reply": {
-      "main": [[{ "node": "Reply Search", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reply Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-
     "Should Respond?": {
       "main": [
-        [{ "node": "Fetch Conversation History", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Fetch Conversation History",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Fetch Conversation History": {
-      "main": [[{ "node": "Fetch User Memories", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Fetch User Memories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Fetch User Memories": {
-      "main": [[{ "node": "Build Claude Request", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Build Claude Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Build Claude Request": {
-      "main": [[{ "node": "Call Claude", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Call Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Call Claude": {
-      "main": [[{ "node": "Parse Claude Reply", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Parse Claude Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Parse Claude Reply": {
-      "main": [[
-        { "node": "Reply on Discord",     "type": "main", "index": 0 },
-        { "node": "Persist User Message", "type": "main", "index": 0 }
-      ]]
+      "main": [
+        [
+          {
+            "node": "Reply on Discord",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Persist User Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Persist User Message": {
-      "main": [[{ "node": "Persist Assistant Message", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Persist Assistant Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Conversation History": {
+      "main": [
+        [
+          {
+            "node": "Reply Command Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "pinData": {},
