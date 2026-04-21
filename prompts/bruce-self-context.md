@@ -6,7 +6,7 @@ Use this when helping Jake build, debug, or extend the household AI system.
 
 - VPS: 147.182.142.176, Ubuntu 24.04
 - Reverse proxy: Caddy (host, not Docker)
-- Docker services: postgres 16, n8n 1.84.3, open-webui, discord-relay, watchtower
+- Docker services: postgres 16, n8n 2.16.1, open-webui, discord-relay (no watchtower — updates are manual)
 - Domain: creativeoutletcoding.com — subdomains: n8n.creativeoutletcoding.com, chat.creativeoutletcoding.com
 - GitHub: creativeoutletcoding-lang/household-ai (main branch)
 
@@ -19,7 +19,7 @@ Use this when helping Jake build, debug, or extend the household AI system.
 
 ## Workflow Architecture
 
-~48 nodes in `workflows/discord-bruce.json`. High-level flow:
+56 nodes in `workflows/discord-bruce.json`. High-level flow:
 
 ```
 Webhook → Unwrap Body → Fetch User Preference → Channel Router
@@ -32,8 +32,10 @@ Webhook → Unwrap Body → Fetch User Preference → Channel Router
       5: /image       → Build Image Request → Call Replicate → Reply Image
       6: /search      → Build Search Request → Call Perplexity → Reply Search
       7: /calendar    → Build Skylight Request → Authenticate Skylight → Call Skylight API → Parse Skylight Reply → Reply Calendar
-      8: reply-only   → Reply on Discord (no Claude call)
-      9: default chat → Should Respond? → Detect Search Intent → Auto-Search IF
+      8: reply-only   → Reply on Discord (no Claude call)  [/help routes here]
+      9: /save-recipe → Save Recipe (Postgres) → Reply Save Recipe
+     10: /recipes     → Query Recipes (Postgres) → Reply Recipes
+     11: default chat → Should Respond? → Detect Search Intent → Auto-Search IF
                           → (true) Auto-Search Perplexity ↘
                           → (false) ─────────────────────→ Fetch Conversation History
                                                          → Fetch Memories
@@ -62,6 +64,7 @@ Database: household (via credential ID `EHBRO07aceirmFzt`)
 discord_conversations(id, guild_id, channel_id, user_id, role, content, created_at)
 user_model_preferences(guild_id, channel_id, user_id, model, updated_at)
 user_memories(id, guild_id, user_id, memory, created_at)
+recipes(id, discord_user_id, title, body, created_at, updated_at)
 ```
 
 ## Credentials
@@ -108,6 +111,9 @@ runbook.md                  — operational runbook
 | /image --hd <prompt> | HD image via Flux Pro |
 | /search <query> | Web search via Perplexity |
 | /calendar | View/manage Skylight family calendar |
+| /help | Show all commands |
+| /save-recipe <title>\n<content> | Save a recipe to Postgres |
+| /recipes [search] | List or search saved recipes |
 
 ## Model Strings
 
@@ -119,7 +125,7 @@ runbook.md                  — operational runbook
 
 Direct API — no MCP sidecar. Auth flow in n8n Code node:
 - Login: POST to Skylight OAuth endpoint using `SKYLIGHT_EMAIL` / `SKYLIGHT_PASSWORD`
-- Token cached in `$workflow.staticData` with expiry check
+- Token cached in `$workflow.staticData` (access is guarded with try/catch — sandbox returns undefined)
 - On 401: clear cache, re-authenticate
 - Frame ID from `SKYLIGHT_FRAME_ID`
 - Timezone from `SKYLIGHT_TIMEZONE` (default: America/New_York)

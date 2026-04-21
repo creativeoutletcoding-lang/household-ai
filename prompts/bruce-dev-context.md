@@ -59,7 +59,12 @@ The n8n UI import requires manual credential verification on every node after im
 ### n8n dbTime.getTime log spam
 **Symptom:** Container logs flooded with "TypeError: dbTime.getTime is not a function" from WaitTracker.
 **Cause:** n8n :latest pulled a version with a Postgres timestamp compatibility bug.
-**Fix:** Pin n8n version in docker-compose.yml via N8N_VERSION env var. Currently pinned to 1.84.3 (may be stale — check Docker Hub for current stable).
+**Fix:** Pin n8n version in docker-compose.yml via N8N_VERSION env var. Currently pinned to 2.16.1.
+
+### Watchtower silently upgraded n8n, breaking rollback
+**Symptom:** After running `docker compose up -d --build discord-relay`, n8n login failed with `column User.role does not exist`.
+**Cause:** Watchtower had auto-upgraded n8n from 1.84.3 → 2.16.1, which ran DB migrations that renamed `role` → `roleSlug` (with FK). The compose up re-pulled the `1.84.3` tag (which Docker Hub had updated to a new build) and reverted the container, but the DB schema was now incompatible with 1.84.3's entity model.
+**Fix:** Removed watchtower entirely. Pinned N8N_VERSION=2.16.1 in .env. All service updates are now manual. `docker compose up -d --build <service>` re-pulls other service images too — always confirm version pins before running it.
 
 ### Node 18 fetch fails with localhost on VPS
 **Symptom:** Scripts using fetch('http://localhost:5678/...') fail with "fetch failed".
@@ -161,7 +166,7 @@ Missing any one of these causes silent failure — $env returns undefined with n
 - Tailscale for remote VPS access
 - Mac Mini M5 Pro migration (expected Sept-Oct 2026)
 - Rotate exposed Replicate API key
-- Discord thread auto-archive configuration
+- Discord thread auto-archive configuration (script exists at scripts/set-thread-archive.js; needs Manage Channels permission granted to bot first)
 
 ### Key people
 - Jake (1495249206087127052) — server admin, Account Executive at FIG, runs CPS with Nana, primary builder

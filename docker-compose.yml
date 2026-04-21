@@ -194,23 +194,3 @@ services:
         limits:
           memory: 256M
 
-  # ---------------------------------------------------------------------------
-  # Watchtower — nightly image updates for n8n / Open WebUI.
-  # Optional; comment out if you'd rather pin versions and update by hand.
-  # ---------------------------------------------------------------------------
-  watchtower:
-    image: containrrr/watchtower
-    container_name: household-watchtower
-    restart: unless-stopped
-    networks: [household]
-    environment:
-      WATCHTOWER_CLEANUP: "true"
-      WATCHTOWER_SCHEDULE: "0 0 3 * * *"    # 03:00 local time
-      WATCHTOWER_LABEL_ENABLE: "true"
-      TZ: ${TZ:-America/Los_Angeles}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    deploy:
-      resources:
-        limits:
-          memory: 64M
