@@ -1,0 +1,9 @@
+{
+  "name": "household-skylight-mcp",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Skylight Frame MCP server for Bruce's family calendar (packaging wrapper around @eaglebyte/skylight-mcp).",
+  "dependencies": {
+    "@eaglebyte/skylight-mcp": "latest"
+  }
+}
