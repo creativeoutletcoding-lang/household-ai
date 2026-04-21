@@ -54,5 +54,6 @@ The n8n 2.x task-runner sandbox is a restricted JS environment. These globals ar
 | `URLSearchParams` | `Object.entries(obj).map(([k,v]) => encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&')` |
 | `TextEncoder` | `const bytes=new Uint8Array(s.length); for(let i=0;i<s.length;i++) bytes[i]=s.charCodeAt(i);` |
 | `$workflow.staticData` | Wrapped in `try { const sd=$workflow.staticData; if(sd&&typeof sd==='object') ... } catch(_){}` |
+| Spread of typed arrays (`...uint8Array`) | `Array.from(typedArray)` then `String.fromCharCode.apply(null, arr)` |
 
 `fetch`, `URL`, `btoa`, `Uint8Array`, `Uint32Array`, `Math`, `Date`, `JSON` are available.
