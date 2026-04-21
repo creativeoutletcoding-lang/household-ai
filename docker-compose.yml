@@ -54,7 +54,11 @@ services:
   # Reverse-proxied by Caddy at n8n.${DOMAIN}.
   # ---------------------------------------------------------------------------
   n8n:
-    image: n8nio/n8n:latest
+    # Pinned to avoid the `dbTime.getTime` bug that has shipped in some
+    # :latest builds. Bump N8N_VERSION in .env after smoke-testing the new
+    # release on a staging branch (or just by rolling back if it breaks).
+    # Check available tags: https://hub.docker.com/r/n8nio/n8n/tags
+    image: n8nio/n8n:${N8N_VERSION:-1.84.3}
     container_name: household-n8n
     restart: unless-stopped
     networks: [household]

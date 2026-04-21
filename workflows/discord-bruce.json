@@ -1185,7 +1185,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO user_memories\n  (discord_user_id, scope, channel_id, channel_name, content)\nSELECT\n  '{{ $json.userId }}',\n  'auto',\n  '{{ $json.memoryScopeId }}',\n  '{{ ($json.memoryScopeName || '').replace(/'/g, \"''\") }}',\n  '{{ ($json.memoryContent || '').replace(/'/g, \"''\") }}'\nWHERE length(trim('{{ ($json.memoryContent || '').replace(/'/g, \"''\") }}')) > 0;",
+        "query": "INSERT INTO user_memories\n  (discord_user_id, scope, channel_id, channel_name, content)\nSELECT\n  '{{ $json.userId }}',\n  'auto',\n  '{{ $json.memoryScopeId }}',\n  '{{ ($json.memoryScopeName || '').replace(/'/g, \"''\") }}',\n  '{{ ($json.memoryContent || '').replace(/'/g, \"''\") }}'\nWHERE length(trim('{{ ($json.memoryContent || '').replace(/'/g, \"''\") }}')) > 0\nON CONFLICT (discord_user_id, LOWER(content)) DO NOTHING;",
         "options": {}
       },
       "id": "70000000-0000-0000-0000-000000000004",
