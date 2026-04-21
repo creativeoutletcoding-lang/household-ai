@@ -1,19 +1,38 @@
-# Thin wrapper around @eaglebyte/skylight-mcp.
+# Builds @eaglebyte/skylight-mcp from source using the unmerged auth-update
+# branch at fergbrain/skylight-mcp. Upstream PR:
+#   https://github.com/TheEagleByte/skylight-mcp/pull/39
 #
-# Node 20 alpine matches the discord-relay image and gives us global fetch.
-# We pre-install the package at build time so the container starts fast on
-# restart (no `npx` cold-start pulling from npm).
+# When the PR lands on TheEagleByte:main we can switch back to installing
+# @eaglebyte/skylight-mcp from npm (see git history for the old Dockerfile).
+#
+# Node 20 alpine matches discord-relay and gives us global fetch.
+FROM node:20-alpine AS build
+
+# Override at build time if the fork gets updated:
+#   docker compose build --build-arg SKYLIGHT_MCP_REPO=... --build-arg SKYLIGHT_MCP_REF=... skylight-mcp
+ARG SKYLIGHT_MCP_REPO=https://github.com/fergbrain/skylight-mcp.git
+ARG SKYLIGHT_MCP_REF=auth-update
+
+RUN apk add --no-cache git
+
+WORKDIR /src
+
+# Shallow-clone just the target branch so we don't drag the whole history.
+RUN git clone --depth 1 --branch "${SKYLIGHT_MCP_REF}" "${SKYLIGHT_MCP_REPO}" .
+
+# Install everything (dev deps needed to run the build), compile TypeScript,
+# then prune to production-only deps for the runtime stage.
+RUN npm ci --no-audit --no-fund \
+    && npm run build \
+    && npm prune --omit=dev
+
+# --- runtime stage -------------------------------------------------------
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Install @eaglebyte/skylight-mcp globally so its bin is on PATH. Keeping the
-# package in a real package.json (rather than `npm i -g ...` as a one-liner)
-# lets Docker cache the install layer and lets us pin the version from a
-# single place.
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev --no-audit --no-fund \
-    && npm cache clean --force
+# Copy the built package plus its pruned node_modules out of the build stage.
+COPY --from=build /src /app
 
 USER node
 ENV NODE_ENV=production
@@ -22,4 +41,9 @@ ENV NODE_ENV=production
 # SKYLIGHT_EMAIL / SKYLIGHT_PASSWORD / SKYLIGHT_FRAME_ID / SKYLIGHT_TIMEZONE
 # env vars injected by docker-compose.
 EXPOSE 3000
-CMD ["npx", "--no-install", "@eaglebyte/skylight-mcp"]
+
+# Most MCP packages publish their entrypoint at dist/index.js. If the PR
+# branch uses a different output path, update this CMD (or use
+# `CMD ["npm", "start"]` if the package.json's "start" script already points
+# at the right file).
+CMD ["node", "dist/index.js"]
