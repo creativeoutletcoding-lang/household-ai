@@ -39,6 +39,18 @@ const THREAD_TYPES = new Set([
   ChannelType.AnnouncementThread,
 ]);
 
+// Channels where Bruce responds to every message (no @mention required).
+// In all other channels Bruce only responds when @mentioned, so we only
+// show the typing indicator when the bot is actually mentioned.
+const ALWAYS_RESPOND_CHANNELS = new Set([
+  'jake-personal', 'fig', 'jake-ask',
+  'loubi-personal', 'wis', 'loubi-ask',
+  'joce-personal', 'joce-school', 'joce-ask',
+  'nana-personal', 'nana-ask',
+]);
+
+const BOT_USER_ID = '1495252972026859520';
+
 // ---------------------------------------------------------------------------
 // Typing indicator tracking
 //
@@ -196,12 +208,15 @@ client.on(Events.MessageCreate, async (message) => {
     const referenced_message = await buildReferencedMessage(message);
     const payload = buildPayload(message, referenced_message);
 
-    // Show "Bruce is typing…" immediately. The n8n workflow decides whether
-    // Bruce should actually reply (read-only channels, mention-only without
-    // a mention, etc.) — in those cases no reply will arrive and the 2-min
-    // safety timeout clears the indicator. That's an acceptable trade for
-    // not duplicating routing logic here.
-    startTyping(message.channel);
+    // Only show "Bruce is typing…" when Bruce will actually respond:
+    // always-respond channels (no mention needed) or any channel where
+    // the bot is @mentioned. This avoids a dangling typing indicator in
+    // read-only / mention-only channels where no reply will arrive.
+    const routingName = payload.channel_name;
+    const isMentioned = payload.mentions.some((u) => u.id === BOT_USER_ID);
+    if (ALWAYS_RESPOND_CHANNELS.has(routingName) || isMentioned) {
+      startTyping(message.channel);
+    }
 
     await postToWebhook(payload);
   } catch (err) {
