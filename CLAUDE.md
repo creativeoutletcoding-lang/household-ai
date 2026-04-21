@@ -34,6 +34,16 @@ Current pins (as of 2026-04-21):
 - Postgres credential: `EHBRO07aceirmFzt`
 - Discord credential: `om7VabWMiA8gC2i3`
 
+## n8n Code node string literals — guardrail
+
+**Never use unescaped backticks inside template literal strings in Channel Router or any other Code node.** Backticks terminate the template literal and produce a silent JS syntax error at runtime.
+
+Safe alternatives:
+- Use a regular double-quoted string: `"line1\nline2\n\`code\`"` — backticks are fine inside `"..."` and Discord renders them as code formatting correctly.
+- If a template literal is necessary, escape inner backticks as `` \` ``.
+
+This bit us in the `/help` command where all the Discord `` `code` `` spans were written as unescaped backticks inside a template literal, crashing Channel Router on every `/help` invocation.
+
 ## n8n task-runner sandbox limitations
 
 The sandbox has no: `URLSearchParams`, `TextEncoder`, `crypto.getRandomValues`, `$workflow.staticData` (returns undefined). It does have: `fetch`, `URL`, `btoa`, `crypto.subtle.digest`.
