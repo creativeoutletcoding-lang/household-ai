@@ -942,7 +942,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, scope, channel_name, content\nFROM user_memories\nWHERE discord_user_id = '{{ $('Channel Router').first().json.userId }}'\n  AND (scope = 'user' OR channel_id = '{{ $('Channel Router').first().json.memoryScopeId }}')\nORDER BY created_at ASC;",
+        "query": "SELECT id, scope, channel_name, content\nFROM user_memories\nWHERE discord_user_id = '{{ $('Channel Router').first().json.userId }}'\nORDER BY created_at DESC\nLIMIT 200;",
         "options": {}
       },
       "id": "ce3cafbb-2902-4c53-8eab-4f1347230aa1",
@@ -963,7 +963,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build the Anthropic /v1/messages request body.\n//\n// Upstream wiring:\n//   Fetch Conversation History (Postgres) — newest-first rows, we reverse\n//   Fetch User Memories (Postgres)        — oldest-first rows, we inject as system-prompt facts\n//   Channel Router                         — persona, model, identity, historyScope, userName\n//   Merge Attachment Branches              — carries content_blocks (images/PDFs) forward\n//\n// This node is downstream of \"Fetch User Memories\" so $input.all() returns\n// the memory rows. Conversation history comes through $('Fetch Conversation History').\n//\n// Speaker attribution: when router.historyScope === 'channel' (shared\n// channels like #food, #family, etc.) we prefix user turns with the\n// speaker's display name so Claude can tell speakers apart. Assistant turns\n// are never prefixed (Bruce always speaks as Bruce).\n//\n// Defensive filter: history rows with empty content are dropped. This\n// guards against legacy image-only rows stored with content='' before\n// Channel Router's contentForPersist was introduced.\nconst router = $('Channel Router').first().json;\nconst isShared = router.historyScope === 'channel';\n\nconst historyRows = $('Fetch Conversation History').all()\n  .map(i => i.json)\n  .reverse()\n  .filter(r => r && (r.role === 'user' || r.role === 'assistant'))\n  .filter(r => r.content != null && String(r.content).trim().length > 0);\nconst memoryRows  = $input.all()\n  .map(i => i.json)\n  .filter(r => r && r.content);\n\n// Memory block — injected into system prompt if there are any.\nlet memoryBlock = '';\nif (memoryRows.length) {\n  const bullets = memoryRows.map(r => `- ${r.content}`).join('\\n');\n  memoryBlock = `\\n\\n<long_term_memory>\\nThe user has asked you to remember these facts. Use them in your reply when relevant; do not quote them back verbatim unless asked.\\n${bullets}\\n</long_term_memory>`;\n}\n\n// Shared-channel note: tell Claude that user turns are prefixed.\nconst sharedNote = isShared\n  ? `\\n\\n<channel_context>\\nThis is a shared channel with multiple people. Each user turn is prefixed with the speaker's name (e.g. \"Jake: ...\"). Address people by name when appropriate. Your own replies are not prefixed.\\n</channel_context>`\n  : '';\n\n// Current date/time in household timezone. Injected so Bruce always knows\n// the day/time without the user having to say.\nconst now = new Date();\nconst dateStr = now.toLocaleString('en-US', {\n  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',\n  hour: 'numeric', minute: '2-digit',\n  timeZone: 'America/New_York',\n  timeZoneName: 'short',\n});\nconst dateBlock = `\\n\\n<current_time>\\nIt is currently ${dateStr}.\\n</current_time>`;\n\nconst systemPrompt = (router.systemPrompt || '') + memoryBlock + sharedNote + dateBlock;\n\n// Speaker prefix helper — pre-migration rows have NULL discord_username, so\n// fall back to a short user-id tag.\nfunction labelUser(r) {\n  const name = r.discord_username\n    || (r.discord_user_id ? `user-${String(r.discord_user_id).slice(-4)}` : 'someone');\n  return `${name}: ${r.content}`;\n}\n\nconst messages = historyRows.map(r => {\n  if (isShared && r.role === 'user') {\n    return { role: 'user', content: labelUser(r) };\n  }\n  return { role: r.role, content: r.content };\n});\n\n// Pull image/PDF content blocks forwarded by Merge Attachment Branches.\n// Empty array when the user didn't upload anything (false branch of Has\n// Attachments injects content_blocks: []).\nlet contentBlocks = [];\ntry {\n  const merged = $('Merge Attachment Branches').first().json;\n  contentBlocks = Array.isArray(merged && merged.content_blocks) ? merged.content_blocks : [];\n} catch (_) { /* merge node absent — ignore */ }\n\nconst userText = router.content || '';\nconst fallbackText = 'Please analyze the attached file(s).';\nconst baseText = userText.trim().length > 0\n  ? userText\n  : (contentBlocks.length > 0 ? fallbackText : '');\n\n// In shared channels, prefix the CURRENT user's turn too so Claude can\n// attribute the live question.\nconst currentText = (isShared && baseText.length > 0)\n  ? `${router.userName || 'someone'}: ${baseText}`\n  : baseText;\n\n// When attachments are present, Anthropic expects a content-block array\n// (images/docs first, text last). Otherwise keep the legacy string form so\n// downstream shape is unchanged for the text-only path.\nconst userContent = contentBlocks.length > 0\n  ? [...contentBlocks, { type: 'text', text: currentText }]\n  : currentText;\n\nmessages.push({ role: 'user', content: userContent });\n\nreturn [{\n  json: {\n    ...router,\n    memoryCount: memoryRows.length,\n    attachmentCount: contentBlocks.length,\n    historyRowCount: historyRows.length,\n    requestBody: {\n      model: router.model || $env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',\n      max_tokens: 1024,\n      system: systemPrompt,\n      messages,\n    },\n  }\n}];\n"
+        "jsCode": "// Build the Anthropic /v1/messages request body.\n//\n// Upstream wiring:\n//   Fetch Conversation History (Postgres) — newest-first rows, we reverse\n//   Fetch User Memories (Postgres)        — oldest-first rows, we inject as system-prompt facts\n//   Channel Router                         — persona, model, identity, historyScope, userName\n//   Merge Attachment Branches              — carries content_blocks (images/PDFs) forward\n//\n// This node is downstream of \"Fetch User Memories\" so $input.all() returns\n// the memory rows. Conversation history comes through $('Fetch Conversation History').\n//\n// Speaker attribution: when router.historyScope === 'channel' (shared\n// channels like #food, #family, etc.) we prefix user turns with the\n// speaker's display name so Claude can tell speakers apart. Assistant turns\n// are never prefixed (Bruce always speaks as Bruce).\n//\n// Defensive filter: history rows with empty content are dropped. This\n// guards against legacy image-only rows stored with content='' before\n// Channel Router's contentForPersist was introduced.\nconst router = $('Channel Router').first().json;\nconst isShared = router.historyScope === 'channel';\n\nconst historyRows = $('Fetch Conversation History').all()\n  .map(i => i.json)\n  .reverse()\n  .filter(r => r && (r.role === 'user' || r.role === 'assistant'))\n  .filter(r => r.content != null && String(r.content).trim().length > 0);\nconst memoryRows  = $input.all()\n  .map(i => i.json)\n  .filter(r => r && r.content);\n\n// Memory block — injected into system prompt if there are any.\nlet memoryBlock = '';\nif (memoryRows.length) {\n  const bullets = memoryRows.map(r => `- ${r.content}`).join('\\n');\n  memoryBlock = `\\n\\n<long_term_memory>\\nThe user has asked you to remember these facts. Use them in your reply when relevant; do not quote them back verbatim unless asked.\\n${bullets}\\n</long_term_memory>`;\n}\n\n// Shared-channel note: tell Claude that user turns are prefixed.\nconst sharedNote = isShared\n  ? `\\n\\n<channel_context>\\nThis is a shared channel with multiple people. Each user turn is prefixed with the speaker's name (e.g. \"Jake: ...\"). Address people by name when appropriate. Your own replies are not prefixed.\\n</channel_context>`\n  : '';\n\n// Current date/time in household timezone. Injected so Bruce always knows\n// the day/time without the user having to say.\nconst now = new Date();\nconst dateStr = now.toLocaleString('en-US', {\n  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',\n  hour: 'numeric', minute: '2-digit',\n  timeZone: 'America/New_York',\n  timeZoneName: 'short',\n});\nconst dateBlock = `\\n\\n<current_time>\\nIt is currently ${dateStr}.\\n</current_time>`;\n\n// Current speaker: who Bruce is talking to RIGHT NOW. Injected on every\n// run (shared or private channel) so Bruce always knows who he's\n// addressing and never asks \"who are you?\" in a private channel.\nconst currentSpeakerBlock = `\\n\\n<current_speaker>\\nYou are currently speaking with ${router.userName || 'someone'}. Address them by this name. Their Discord user ID is ${router.userId || 'unknown'}. Do not ask who they are — they have already been identified.\\n</current_speaker>`;\n\nconst systemPrompt = (router.systemPrompt || '') + currentSpeakerBlock + memoryBlock + sharedNote + dateBlock;\n\n// Speaker prefix helper — pre-migration rows have NULL discord_username, so\n// fall back to a short user-id tag.\nfunction labelUser(r) {\n  const name = r.discord_username\n    || (r.discord_user_id ? `user-${String(r.discord_user_id).slice(-4)}` : 'someone');\n  return `${name}: ${r.content}`;\n}\n\nconst messages = historyRows.map(r => {\n  if (isShared && r.role === 'user') {\n    return { role: 'user', content: labelUser(r) };\n  }\n  return { role: r.role, content: r.content };\n});\n\n// Pull image/PDF content blocks forwarded by Merge Attachment Branches.\n// Empty array when the user didn't upload anything (false branch of Has\n// Attachments injects content_blocks: []).\nlet contentBlocks = [];\ntry {\n  const merged = $('Merge Attachment Branches').first().json;\n  contentBlocks = Array.isArray(merged && merged.content_blocks) ? merged.content_blocks : [];\n} catch (_) { /* merge node absent — ignore */ }\n\nconst userText = router.content || '';\nconst fallbackText = 'Please analyze the attached file(s).';\nconst baseText = userText.trim().length > 0\n  ? userText\n  : (contentBlocks.length > 0 ? fallbackText : '');\n\n// In shared channels, prefix the CURRENT user's turn too so Claude can\n// attribute the live question.\nconst currentText = (isShared && baseText.length > 0)\n  ? `${router.userName || 'someone'}: ${baseText}`\n  : baseText;\n\n// When attachments are present, Anthropic expects a content-block array\n// (images/docs first, text last). Otherwise keep the legacy string form so\n// downstream shape is unchanged for the text-only path.\nconst userContent = contentBlocks.length > 0\n  ? [...contentBlocks, { type: 'text', text: currentText }]\n  : currentText;\n\nmessages.push({ role: 'user', content: userContent });\n\nreturn [{\n  json: {\n    ...router,\n    memoryCount: memoryRows.length,\n    attachmentCount: contentBlocks.length,\n    historyRowCount: historyRows.length,\n    requestBody: {\n      model: router.model || $env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',\n      max_tokens: 1024,\n      system: systemPrompt,\n      messages,\n    },\n  }\n}];\n"
       },
       "id": "1a1b0b86-225c-4921-91b1-075f722f5b5b",
       "name": "Build Claude Request",
@@ -1112,6 +1112,91 @@
       ],
       "id": "27000000-0000-0000-0000-000000000001",
       "name": "Clear Conversation History",
+      "credentials": {
+        "postgres": {
+          "id": "EHBRO07aceirmFzt",
+          "name": "Household Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// Build Memory Extraction Request\n//\n// Runs on the default conversation branch only (commands like /image,\n// /search, /clear, /use, /remember, /forget, /memories take separate paths\n// out of Command Switch and never reach here). Fires after Persist Assistant\n// Message so we have a completed exchange to analyze.\n//\n// Asks Haiku to extract durable facts, preferences, decisions, and\n// commitments about the triggering user. Skip duplicates — the user's\n// existing memories are passed in the prompt so Haiku can avoid\n// re-extracting anything already captured.\n//\n// Shared-channel note: Channel Router's userId is always the webhook\n// payload's author.id — i.e. the user whose message fired this run. In a\n// shared channel with multiple speakers, only the mentioner triggers Bruce,\n// so we only ever extract memories for that one user.\n// ---------------------------------------------------------------------------\nconst router = $('Channel Router').first().json;\n\nconst existingMemories = $('Fetch User Memories').all()\n  .map(i => i.json)\n  .filter(r => r && r.content)\n  .map(r => r.content);\n\nconst historyRows = $('Fetch Conversation History').all()\n  .map(i => i.json)\n  .reverse()\n  .filter(r => r && (r.role === 'user' || r.role === 'assistant'))\n  .filter(r => r.content != null && String(r.content).trim().length > 0);\n\nconst parsed = $('Parse Claude Reply').first().json;\nconst userMessageText = router.content || '';\nconst assistantReplyText = parsed.reply || '';\nconst speakerName = router.userName || 'the user';\n\n// Last 10 prior turns plus the exchange that just completed.\nconst historyText = historyRows\n  .slice(-10)\n  .map(r => {\n    const who = r.role === 'assistant' ? 'Bruce' : (r.discord_username || speakerName);\n    return `${who}: ${r.content}`;\n  })\n  .join('\\n');\n\nconst existingBlock = existingMemories.length\n  ? existingMemories.map(m => `- ${m}`).join('\\n')\n  : '(none yet)';\n\nconst system = `You are a background memory-curation assistant for Bruce, a household AI. Your job is to extract durable, reusable facts about a specific user based on a recent conversation.\n\nFocus on:\n- Personal facts (name, relationships, occupation, location, birthday)\n- Preferences (food, music, tools, communication style)\n- Decisions and commitments (things they said they'll do, plans they've made)\n- Goals, projects, ongoing work\n- Recurring routines, schedules, people they mention often\n\nIgnore:\n- Generic chit-chat or small-talk\n- Anything already captured in the user's existing memories (see below)\n- Speculation — only extract what was actually stated\n- Single-use details that won't matter tomorrow (e.g. \"asked about the weather today\")\n- Anything that looks ephemeral or task-specific\n\nOutput format: JSON array of short strings, each a self-contained memory statement about the user. Write each memory in third person, starting with the user's name or a pronoun. Keep each under 180 characters.\n\nIf nothing new is worth saving, return an empty array: []\n\nOutput ONLY the JSON array — no markdown, no code fences, no commentary.`;\n\nconst userPrompt = `Existing memories for ${speakerName}:\n${existingBlock}\n\nRecent conversation:\n${historyText}\n${speakerName}: ${userMessageText}\nBruce: ${assistantReplyText}\n\nReturn the JSON array of NEW memories to save for ${speakerName}.`;\n\nreturn [{\n  json: {\n    ...router,\n    memoryRequestBody: {\n      model: 'claude-haiku-4-5-20251001',\n      max_tokens: 400,\n      system,\n      messages: [{ role: 'user', content: userPrompt }],\n    },\n  }\n}];\n"
+      },
+      "id": "70000000-0000-0000-0000-000000000001",
+      "name": "Build Memory Extraction Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.memoryRequestBody) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "70000000-0000-0000-0000-000000000002",
+      "name": "Call Claude (Memory)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// Parse Memory Extract\n//\n// Parses Haiku's JSON array of extracted memories. Emits one item per\n// memory so the downstream Insert node runs once per row. Empty array → no\n// output (nothing to insert). Parse failures are swallowed, returning [].\n// ---------------------------------------------------------------------------\nconst router = $('Channel Router').first().json;\nconst apiRes = $input.item.json;\n\nconst text = (apiRes.content || [])\n  .filter(c => c.type === 'text')\n  .map(c => c.text)\n  .join('')\n  .trim();\n\nlet memories = [];\ntry {\n  // Strip code fences if the model wrapped output despite instructions.\n  const cleaned = text\n    .replace(/^```(?:json)?\\s*/i, '')\n    .replace(/```\\s*$/i, '')\n    .trim();\n  const parsedArr = JSON.parse(cleaned);\n  if (Array.isArray(parsedArr)) {\n    memories = parsedArr\n      .filter(m => typeof m === 'string')\n      .map(m => m.trim())\n      .filter(m => m.length > 0);\n  }\n} catch (_) {\n  memories = [];\n}\n\nreturn memories.map(content => ({\n  json: {\n    ...router,\n    memoryContent: content,\n  }\n}));\n"
+      },
+      "id": "70000000-0000-0000-0000-000000000003",
+      "name": "Parse Memory Extract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO user_memories\n  (discord_user_id, scope, channel_id, channel_name, content)\nVALUES\n  ('{{ $json.userId }}',\n   'auto',\n   '{{ $json.memoryScopeId }}',\n   '{{ ($json.memoryScopeName || '').replace(/'/g, \"''\") }}',\n   '{{ $json.memoryContent.replace(/'/g, \"''\") }}');",
+        "options": {}
+      },
+      "id": "70000000-0000-0000-0000-000000000004",
+      "name": "Insert Auto Memory",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1792,
+        1152
+      ],
+      "alwaysOutputData": true,
       "credentials": {
         "postgres": {
           "id": "EHBRO07aceirmFzt",
@@ -1549,6 +1634,50 @@
         [
           {
             "node": "Reply Command Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist Assistant Message": {
+      "main": [
+        [
+          {
+            "node": "Build Memory Extraction Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Memory Extraction Request": {
+      "main": [
+        [
+          {
+            "node": "Call Claude (Memory)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Claude (Memory)": {
+      "main": [
+        [
+          {
+            "node": "Parse Memory Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Memory Extract": {
+      "main": [
+        [
+          {
+            "node": "Insert Auto Memory",
             "type": "main",
             "index": 0
           }

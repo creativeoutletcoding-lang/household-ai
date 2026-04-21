@@ -39,6 +39,49 @@ const THREAD_TYPES = new Set([
   ChannelType.AnnouncementThread,
 ]);
 
+// ---------------------------------------------------------------------------
+// Typing indicator tracking
+//
+// When a human message passes all filters and we POST to n8n, we call
+// channel.sendTyping() so the speaker sees "Bruce is typing…" right away —
+// long operations (image gen, Claude latency, Perplexity) would otherwise
+// leave the channel silent. Discord's typing signal auto-expires after ~10s,
+// so we repeat every 8s until either:
+//   (a) Bruce's own reply arrives — handled by clearing on the bot's own
+//       messageCreate event in this same channel.
+//   (b) 2 minutes elapse — safety timeout in case n8n crashes mid-flight.
+//
+// Keyed by the delivery channel id (i.e. the thread id when the message was
+// posted inside a thread), matching how Bruce's reply is delivered — a
+// reply inside a thread fires messageCreate on the thread, so using the
+// thread id makes the clear-on-bot-message path straightforward.
+// ---------------------------------------------------------------------------
+const activeTyping = new Map();
+
+function startTyping(channel) {
+  if (!channel || typeof channel.sendTyping !== 'function') return;
+  const key = channel.id;
+  stopTyping(key); // clear any stale entry in case the last run didn't finish
+  channel.sendTyping().catch(() => {});
+  const interval = setInterval(() => {
+    channel.sendTyping().catch(() => {});
+  }, 8000);
+  const timeout = setTimeout(() => {
+    log(`typing timeout for channel ${key} — 2 min elapsed without bot reply`);
+    stopTyping(key);
+  }, 120000);
+  activeTyping.set(key, { interval, timeout });
+}
+
+function stopTyping(key) {
+  if (!key) return;
+  const entry = activeTyping.get(key);
+  if (!entry) return;
+  clearInterval(entry.interval);
+  clearTimeout(entry.timeout);
+  activeTyping.delete(key);
+}
+
 async function buildReferencedMessage(message) {
   if (!message.reference || !message.reference.messageId) return null;
   try {
@@ -71,12 +114,24 @@ function buildPayload(message, referenced_message) {
   const routingChannelId = isThread && parent ? parent.id : message.channelId;
   const routingChannelName = isThread && parent ? parent.name : (channel?.name ?? '');
 
+  // Prefer the guild nickname, then the user's chosen global display name,
+  // then the handle-style username. Bruce uses this name in system prompts
+  // and as the speaker prefix in shared-channel history, so the best-looking
+  // name the person has already picked for themselves is what we want.
+  // Overwriting `author.username` keeps one source of truth downstream — the
+  // raw handle isn't used for anything else.
+  const displayName =
+    message.member?.displayName
+    || message.author?.globalName
+    || message.author?.username
+    || '';
+
   return {
     id: message.id,
     content: message.content,
     author: {
       id: message.author.id,
-      username: message.author.username,
+      username: displayName,
       bot: message.author.bot === true,
     },
     channel_id: routingChannelId,
@@ -118,7 +173,15 @@ client.once(Events.ClientReady, (c) => {
 
 client.on(Events.MessageCreate, async (message) => {
   try {
-    if (message.author?.bot) return;
+    // Bot messages: we don't relay them. But if the message is from US,
+    // that means n8n just replied — clear any typing indicator we started
+    // for this channel/thread so "Bruce is typing…" goes away immediately.
+    if (message.author?.bot) {
+      if (message.author.id === client.user?.id) {
+        stopTyping(message.channel?.id);
+      }
+      return;
+    }
     if (message.guildId !== DISCORD_SERVER_ID) return;
 
     // Drop Discord system messages (thread-created notices, pin announcements,
@@ -132,8 +195,19 @@ client.on(Events.MessageCreate, async (message) => {
 
     const referenced_message = await buildReferencedMessage(message);
     const payload = buildPayload(message, referenced_message);
+
+    // Show "Bruce is typing…" immediately. The n8n workflow decides whether
+    // Bruce should actually reply (read-only channels, mention-only without
+    // a mention, etc.) — in those cases no reply will arrive and the 2-min
+    // safety timeout clears the indicator. That's an acceptable trade for
+    // not duplicating routing logic here.
+    startTyping(message.channel);
+
     await postToWebhook(payload);
   } catch (err) {
+    // If anything threw before/during the POST, stop typing so it doesn't
+    // dangle for 2 minutes.
+    stopTyping(message?.channel?.id);
     log(`handler error for msg ${message?.id}: ${err.stack || err.message}`);
   }
 });
@@ -167,6 +241,8 @@ client.rest.on('rateLimited', (info) =>
 
 function shutdown(signal) {
   log(`received ${signal} — shutting down`);
+  // Stop any outstanding typing intervals so the process can exit cleanly.
+  for (const key of [...activeTyping.keys()]) stopTyping(key);
   client.destroy().finally(() => process.exit(0));
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
