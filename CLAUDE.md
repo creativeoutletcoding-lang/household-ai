@@ -46,4 +46,13 @@ This bit us in the `/help` command where all the Discord `` `code` `` spans were
 
 ## n8n task-runner sandbox limitations
 
-The sandbox has no: `URLSearchParams`, `TextEncoder`, `crypto.getRandomValues`, `$workflow.staticData` (returns undefined). It does have: `fetch`, `URL`, `btoa`, `crypto.subtle.digest`.
+The n8n 2.x task-runner sandbox is a restricted JS environment. These globals are **not available** — do not use them in any Code node:
+
+| Missing global | Pure-JS replacement used |
+|---|---|
+| `crypto` / `crypto.subtle` | Inline SHA-256 (FIPS 180-4) in Authenticate Skylight |
+| `URLSearchParams` | `Object.entries(obj).map(([k,v]) => encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&')` |
+| `TextEncoder` | `const bytes=new Uint8Array(s.length); for(let i=0;i<s.length;i++) bytes[i]=s.charCodeAt(i);` |
+| `$workflow.staticData` | Wrapped in `try { const sd=$workflow.staticData; if(sd&&typeof sd==='object') ... } catch(_){}` |
+
+`fetch`, `URL`, `btoa`, `Uint8Array`, `Uint32Array`, `Math`, `Date`, `JSON` are available.
