@@ -19,11 +19,11 @@ Use this when helping Jake build, debug, or extend the household AI system.
 
 ## Workflow Architecture
 
-55 nodes in `workflows/discord-bruce.json`. High-level flow:
+58 nodes in `workflows/discord-bruce.json`. High-level flow:
 
 ```
 Webhook → Unwrap Body → Fetch User Preference → Channel Router
-  → Command Switch (11 outputs):
+  → Command Switch (12 rules + fallback):
       0: /use         → Set Model → Reply Confirmation
       1: /remember    → Insert Memory → Reply Confirmation
       2: /forget      → Delete Memory → Reply Confirmation
@@ -35,7 +35,8 @@ Webhook → Unwrap Body → Fetch User Preference → Channel Router
       8: /calendar    → Parse Calendar Cmd → Get Calendar Events → Format Calendar Reply → Reply Calendar
       9: /save-recipe → Save Recipe (Postgres) → Reply Save Recipe
      10: /recipes     → Query Recipes (Postgres) → Reply Recipes
-     11: default chat → Should Respond? → Detect Search Intent → Auto-Search IF
+     11: /status      → Query Status (Postgres) → Format Status Reply → Reply Status  [jake channels only]
+     12: default chat → Should Respond? → Detect Search Intent → Auto-Search IF
                           → (true) Auto-Search Perplexity ↘
                           → (false) ─────────────────────→ Fetch Conversation History
                                                          → Fetch Memories
@@ -109,10 +110,11 @@ runbook.md                  — operational runbook
 | /clear | Clear conversation history |
 | /image <prompt> | Generate image via Flux Schnell |
 | /image --hd <prompt> | HD image via Flux Pro |
-| /search <query> | Web search via Perplexity |
+| /search <query> | Web search via Perplexity (also auto-triggers for URLs, live scores, current events) |
 | /calendar | Show today's family calendar events (Google Calendar) |
 | /calendar week | Show events for the next 7 days |
 | /calendar <person> | Show a person's calendar (jake, loubi, joce, nana, elliot, henry, violette) |
+| /status | System health: message counts, memory counts, recipe count (jake channels only) |
 | /help | Show all commands |
 | /save-recipe <title>\n<content> | Save a recipe to Postgres |
 | /recipes [search] | List or search saved recipes |

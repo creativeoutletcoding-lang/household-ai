@@ -140,9 +140,12 @@ Missing any one of these causes silent failure — $env returns undefined with n
 ### What's shipped and working
 - Discord relay with typing indicators, thread support, attachment handling
 - Channel routing with 18 channels across 7 categories
-- 13 inline personas (general, family, fig, jake-personal, ask, travel, food, cps, loubi-personal, wis, joce-personal, joce-school, nana-personal)
-- Commands: /use, /remember, /forget, /memories, /clear, /image, /image --hd, /search, /help, /save-recipe, /recipes
+- 13 inline personas (all with explicit web-search capability notice — never claims to lack real-time data)
+- Commands: /use, /remember, /forget, /memories, /clear, /image, /image --hd, /search, /help, /save-recipe, /recipes, /status
 - /calendar via n8n Google Calendar node (johnson2016family@gmail.com) — credential setup pending, sub-calendar IDs pending
+- Auto-search (Detect Search Intent): URLs, sports/scores, live events, "tonight", "right now", "happening now", "today", near-me queries
+- Citation URLs from /search wrapped in `<>` to suppress Discord rich embeds
+- Auto-search URL hint in Build Claude Request (Claude told to wrap URLs in `<>` when citing)
 - Auto memory extraction via Haiku (post-conversation, background)
 - Cross-channel memory (all memories for a user, regardless of channel)
 - Duplicate memory prevention (unique index + ON CONFLICT DO NOTHING)
@@ -154,8 +157,6 @@ Missing any one of these causes silent failure — $env returns undefined with n
 
 ### What's in progress or recently added
 - Google Calendar integration — workflow nodes built, awaiting OAuth credential creation in n8n UI and sub-calendar ID population in Parse Calendar Cmd node
-- Auto-search detection (Perplexity triggered by real-time queries)
-- Bruce self-context injection for Jake's channels
 
 ### What's pending (not started)
 - Google Calendar OAuth credential setup (see runbook.md → Calendar section)

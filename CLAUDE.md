@@ -50,10 +50,33 @@ The n8n 2.x task-runner sandbox is a restricted JS environment. These globals ar
 
 | Missing global | Pure-JS replacement used |
 |---|---|
-| `crypto` / `crypto.subtle` | Inline SHA-256 (FIPS 180-4) in Authenticate Skylight |
+| `crypto` / `crypto.subtle` | Inline SHA-256 (FIPS 180-4) — Skylight integration has been removed; keep this note for any future crypto needs |
 | `URLSearchParams` | `Object.entries(obj).map(([k,v]) => encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&')` |
 | `TextEncoder` | `const bytes=new Uint8Array(s.length); for(let i=0;i<s.length;i++) bytes[i]=s.charCodeAt(i);` |
 | `$workflow.staticData` | Wrapped in `try { const sd=$workflow.staticData; if(sd&&typeof sd==='object') ... } catch(_){}` |
 | Spread of typed arrays (`...uint8Array`) | `Array.from(typedArray)` then `String.fromCharCode.apply(null, arr)` |
 
 `fetch`, `URL`, `btoa`, `Uint8Array`, `Uint32Array`, `Math`, `Date`, `JSON` are available.
+
+## Persona rules — web search capability
+
+**Every persona must assert web search capability.** The common persona tail in Channel Router includes: "You have web search capabilities via Perplexity that trigger automatically for real-time queries, URLs, and current events. Never say you lack real-time data, cannot access the internet, or cannot check current information."
+
+This tail appears in all 13 personas. When adding or editing personas, preserve it. Never let a persona say it cannot browse the web or lacks real-time data.
+
+## Auto-search trigger patterns (Detect Search Intent node)
+
+Perplexity auto-search fires when the message:
+- Contains a URL (`https?://`)
+- Mentions sports: scores, games, matchup, standings, stats, NFL/NBA/MLB/NHL/MLS
+- Mentions live events: tonight, right now, happening now, live score/game/match
+- Mentions time-sensitive: breaking, just happened, latest, recent, current, today's
+- Uses near-me language (also appends "Falls Church Merrifield VA" to the query)
+
+## Discord URL embed suppression
+
+Citation URLs in `/search` replies are wrapped in `<https://url>` by Parse Perplexity Reply so Discord doesn't render rich embeds. For auto-search, Build Claude Request instructs Claude to wrap any URLs in angle brackets when citing them in its reply.
+
+## /status command
+
+Jake-only command (restricted to jake-personal, fig, jake-ask in Channel Router). Runs a UNION ALL query against Postgres (discord_conversations, user_memories, recipes tables) and returns message counts, memory counts by scope, and recipe total. Command Switch output 11 → Query Status → Format Status Reply → Reply Status.
