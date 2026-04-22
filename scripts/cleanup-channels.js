@@ -9,6 +9,8 @@
 
 'use strict';
 
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
 const { Client, GatewayIntentBits, ChannelType } = require('discord.js');
 
 const {

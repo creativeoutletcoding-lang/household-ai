@@ -118,7 +118,9 @@ async function buildReferencedMessage(message) {
 
 function buildPayload(message, referenced_message) {
   const channel = message.channel;
-  const isDm = channel?.type === ChannelType.DM;
+  // guildId is null for DMs and a string for guild messages — more reliable
+  // than channel.type which may be unset on partial DM channels.
+  const isDm = !message.guildId;
   const isThread = !isDm && channel ? THREAD_TYPES.has(channel.type) : false;
 
   // For DMs: route using the literal channel name 'dm'.
@@ -194,7 +196,8 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     // Allow DMs through; reject messages from other guilds.
-    const isDm = message.channel?.type === ChannelType.DM;
+    // Use !guildId rather than channel.type — partial DM channels may not have type set.
+    const isDm = !message.guildId;
     if (!isDm && message.guildId !== DISCORD_SERVER_ID) return;
 
     // Drop Discord system messages (thread-created notices, pin announcements,
