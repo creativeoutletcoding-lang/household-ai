@@ -87,6 +87,36 @@ discord-relay forwards DMs with `channel_name='dm'`, `is_dm=true`, `guild_id=''`
 
 Requires `GatewayIntentBits.DirectMessages` and `Partials.Channel, Partials.Message` in discord-relay (added). DMs don't fire `ThreadCreate` so the thread-join handler is never triggered.
 
+## Memory scoping rules (migration 008)
+
+Every memory has a `visibility_scope` column controlling where it's allowed to surface:
+
+- **dm** — DM conversations only
+- **private** — surfaces in the owner's personal channels + their DMs, NOT in group/shared channels
+- **shared** — surfaces everywhere including group/shared channels
+
+Two lists in the workflow drive this classification and must be kept in sync whenever a new channel is added:
+
+- `PRIVATE_CHANNELS` (Channel Router constants): `jake-personal, fig, jake-ask, loubi-personal, wis, loubi-ask, joce-personal, joce-school, joce-ask, nana-personal, nana-ask`
+- `SHARED_CHANNELS` (Channel Router constants): `general, family, announcements, food, travel, cps`
+
+DMs are classified at runtime via `is_dm=true`.
+
+**When adding a new Discord channel, you MUST:**
+1. Decide if it's a personal channel (write-scope `private`) or group channel (write-scope `shared`) and add it to the corresponding list in Channel Router.
+2. If personal, also add the channel name to the `IN (...)` list inside the Fetch User Memories SQL (the branch that unblocks `visibility_scope='private'`). Otherwise private memories won't surface when the user is in the new channel.
+
+Write-time scope assignment is in Channel Router; read-time filter is in Fetch User Memories SQL. Both Save User Memory (`/remember`) and Insert Auto Memory stamp `visibility_scope` at insert time.
+
+## /private (incognito mode) and /purge
+
+Both commands are available to every user in any channel they have access to.
+
+- `/private on` / `/private off` / `/private` (toggle) — sets the `private_mode` flag in `user_session_flags` for `(discord_user_id, channel_id)`. While on: Persist User Message, Persist Assistant Message, and Insert Auto Memory all skip the write because each node's SQL has `AND '{{ $('Channel Router').first().json.skipPersist }}' != 'true'`. On turn-off, `Cleanup Bot Messages` (Code node) lists recent channel messages via Discord REST and deletes the bot's own messages posted since `private_started_at`.
+- `/purge [N]` / `/purge all` — uses Discord REST `bulk-delete` (≤100 msgs, <14d old) in server channels; in DMs, deletes only the bot's own messages (Discord does not permit bots to delete user DMs). Does NOT clear Postgres history — combine with `/clear` for a full reset.
+
+The session-flag read runs in a new `Query Session Flags` Postgres node wired between `Fetch user Preference` and `Channel Router`. Must have `alwaysOutputData: true` so Channel Router can still read from an empty-flag user.
+
 ## Discord 2000-char message splitting
 
 Parse Claude Reply now runs `splitChunks(reply, 1900)` and returns one item per chunk. The Discord node (`Reply on Discord`) sends one message per item. `Persist Assistant Message` reads `$('Parse Claude Reply').first().json.reply` which is always the full unsplit text (first item always has the full reply).

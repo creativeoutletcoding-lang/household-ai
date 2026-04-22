@@ -18,6 +18,16 @@ Cost. Memory extraction runs on every conversation turn as a background call aft
 ### Why cross-scope dedup on memories
 The unique index is on (discord_user_id, LOWER(content)) with no scope column. A fact is a fact regardless of whether it came from /remember (scope='channel') or auto extraction (scope='auto'). If Jake /forgets a memory (hard DELETE), the auto extractor can re-learn it naturally in a future conversation — the index no longer blocks after the row is gone.
 
+### Why memories have a visibility_scope (separate from scope)
+Migration 008 adds `visibility_scope ∈ {dm, private, shared}` to `user_memories`. The existing `scope` column describes *how* a memory was written (user/channel/auto); `visibility_scope` describes *where* it's allowed to surface. Without this split, anything Jake told Bruce in #fig (work) could leak into #family.
+
+Classification is assigned at write time based on the channel the memory was learned in:
+- **dm** — learned in a DM; surfaces only in DM conversations with that user
+- **private** — learned in a personal channel (jake-personal, fig, jake-ask, loubi-personal, wis, loubi-ask, joce-personal, joce-school, joce-ask, nana-personal, nana-ask); surfaces across all of that person's personal channels + their DMs, NOT in group/shared channels
+- **shared** — learned in a group/shared channel (general, family, announcements, food, travel, cps); surfaces everywhere including group/shared channels
+
+Fetch User Memories enforces the filter at read time. Both Save User Memory (/remember) and Insert Auto Memory stamp `visibility_scope` based on the Channel Router's classification.
+
 ### Why Google Calendar instead of Skylight
 Skylight's API is unofficial and reverse-engineered. The OAuth PKCE flow required a pure-JS SHA-256 implementation (no Web Crypto in n8n's task-runner sandbox), and even after that, `Uint8Array` spread syntax was blocked, requiring `Array.from()` workarounds. The integration kept hitting new sandbox restrictions with each fix. Google Calendar uses an official API with a first-class n8n node — no Code node crypto gymnastics, no sandbox issues, no fragile reverse-engineered endpoints.
 
@@ -93,6 +103,11 @@ The n8n UI import requires manual credential verification on every node after im
 **Cause:** Unrecognized escape sequences in template literals are silently ignored (non-strict mode).
 **Fix:** Use `RegExp()` constructor instead of regex literals in generated Code node strings. For URL patterns, use `new RegExp('(^|[\\\\s(])(https?://[^\\\\s<>"]+)', 'g')` — the four backslashes in the Node.js string become two in the workflow JSON, which become one each in the runtime regex.
 
+### DM relay duplicate — both raw handler and messageCreate firing
+**Symptom:** Every DM to Bruce got relayed to n8n twice, producing two replies from Bruce for every DM.
+**Cause:** discord-relay listens on the raw Discord gateway `MESSAGE_CREATE` event to catch DMs reliably (discord.js's `messageCreate` sometimes skips DMs depending on intent/partials config). Once both code paths started firing, every DM went through both.
+**Fix:** The raw gateway listener short-circuits in `messageCreate` via a short-lived de-dupe set keyed on Discord message ID; only one path relays per message. See commits 0542e34 and 7be860c.
+
 ---
 
 ## Build Patterns
@@ -106,6 +121,14 @@ The n8n UI import requires manual credential verification on every node after im
 6. If it touches Postgres, use credential EHBRO07aceirmFzt
 7. Run validate-workflow.js after changes
 8. Import with: N8N_API_KEY=... N8N_BASE_URL=http://127.0.0.1:5678 node scripts/import-workflow.js
+
+### Adding a new Discord channel — classify it for memory scoping
+Every new channel must be classified in TWO places or memory visibility breaks:
+1. **Channel Router constants (`PRIVATE_CHANNELS` or `SHARED_CHANNELS`)** — determines what `visibility_scope` gets stamped on memories written from that channel.
+2. **Fetch User Memories SQL `IN (...)` list** — if the new channel is *private*, add its name to the list on the `visibility_scope='private'` branch so private memories can surface there.
+
+Skipping step 1 → memories learned in the new channel fall back to `shared` and leak into group channels.
+Skipping step 2 → private memories won't surface when the user is in the new channel.
 
 ### Adding a new Postgres table
 1. Create migration file: postgres/migrations/NNN-description.sql
@@ -152,7 +175,10 @@ Missing any one of these causes silent failure — $env returns undefined with n
 - DM support: discord-relay forwards DMs with channel_name='dm', is_dm=true; Channel Router routes to 'dm' persona (always-respond, sonnet); typing indicator always shown in DMs
 - Channel routing with 18 channels across 7 categories + DM routing
 - 14 inline personas (13 channel + 1 DM — all with explicit web-search capability notice; never claims to lack real-time data)
-- Commands: /use, /remember, /forget, /memories, /clear, /image, /image --hd, /search, /help, /save-recipe, /recipes, /status
+- Commands: /use, /remember, /forget, /memories, /clear, /image, /image --hd, /search, /help, /save-recipe, /recipes, /status, /private, /purge
+- Memory visibility scoping via `visibility_scope` (dm / private / shared) — learned scope is assigned at write time based on originating channel; read-time filter in Fetch User Memories enforces it (migration 008). /memories displays 🔒 / 👤 / 👥 next to each memory.
+- /private incognito mode — per-user+channel flag disables conversation + memory persistence while on. /private off deletes Bruce's messages from the session via Discord REST API.
+- /purge — bulk-delete recent channel messages (server: Discord bulk-delete for msgs <14d old; DMs: Bruce's own messages only, Discord restriction).
 - /calendar via n8n Google Calendar node (johnson2016family@gmail.com) — credential setup pending, sub-calendar IDs pending
 - Auto-search (Detect Search Intent): URLs, sports/scores, live events, "tonight", "right now", "happening now", "today", near-me queries
 - Citation URLs from /search wrapped in `<>` to suppress Discord rich embeds
@@ -188,6 +214,9 @@ Missing any one of these causes silent failure — $env returns undefined with n
 - Rotate exposed Replicate API key
 - Discord thread auto-archive configuration (script exists at scripts/set-thread-archive.js; needs Manage Channels permission granted to bot first)
 - Discord channel cleanup (scripts/cleanup-channels.js exists — run `DISCORD_BOT_TOKEN=... DISCORD_SERVER_ID=... node scripts/cleanup-channels.js --apply` to remove duplicate #general)
+
+### Larger features on the roadmap
+- **Custom UI dashboard** — a web UI on top of Postgres/n8n for browsing memories by scope, inspecting conversation history, managing recipes, toggling feature flags, and viewing system status. Bruce's Discord surface is great for chatting but not for curation or bulk management. No start date yet.
 
 ### Key people
 - Jake (1495249206087127052) — server admin, Account Executive at FIG, runs CPS with Nana, primary builder

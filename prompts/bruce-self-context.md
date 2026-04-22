@@ -16,6 +16,7 @@ Use this when helping Jake build, debug, or extend the household AI system.
 - Bot ID: 1495252972026859520
 - Categories: SHARED, FAM, CPS, JAKE, LOUBI, JOCE, NANA
 - Behavior modes: always-respond (Jake/family channels), mention-only (shared channels), always-respond (DMs)
+- DMs: discord-relay forwards with `channel_name='dm'`, `is_dm=true`, `guild_id=''`. Channel Router routes to the 'dm' persona. A raw gateway `MESSAGE_CREATE` listener backs up discord.js's `messageCreate` for DMs, with a de-dupe set to prevent double relay.
 
 ## Workflow Architecture
 
@@ -66,13 +67,27 @@ Webhook → Unwrap Body → Fetch User Preference → Channel Router
 Database: household (via credential ID `EHBRO07aceirmFzt`)
 
 ```sql
-discord_conversations(id, guild_id, channel_id, user_id, role, content, created_at)
+discord_conversations(id, message_id, guild_id, channel_id, channel_name, thread_id, thread_name, discord_user_id, discord_username, role, content, created_at)
 user_model_preferences(guild_id, channel_id, user_id, model, updated_at)
-user_memories(id, guild_id, user_id, memory, created_at)
+user_memories(id, discord_user_id, scope, visibility_scope, channel_id, channel_name, content, created_at)
+  -- scope           ∈ {'user','channel','auto'}   — how the memory was written
+  -- visibility_scope ∈ {'dm','private','shared'}  — where it's allowed to surface (migration 008)
 recipes(id, discord_user_id, title, body, created_at, updated_at)
+user_session_flags(discord_user_id, channel_id, flag_name, flag_value, updated_at)
+  -- ephemeral per-user+channel flags: private_mode='true'|'false', private_started_at=ISO ts
 
-Note: DMs use guild_id='' and channel_id=Discord DM channel ID.
+Note: DMs use guild_id='' and channel_id=Discord DM channel ID; channel_name='dm'; is_dm=true.
 ```
+
+## Memory visibility scoping (migration 008)
+
+Every memory has a `visibility_scope` that controls where it surfaces:
+
+- **dm** — DM conversations only
+- **private** — surfaces in the owner's personal channels (jake-personal, fig, jake-ask, loubi-personal, wis, loubi-ask, joce-personal, joce-school, joce-ask, nana-personal, nana-ask) and their DMs — never in group/shared channels
+- **shared** — surfaces everywhere including group/shared channels (general, family, announcements, food, travel, cps)
+
+Assigned at write time based on the channel the conversation happened in. Enforced at read time by `Fetch User Memories`.
 
 ## Credentials
 
@@ -121,6 +136,8 @@ runbook.md                  — operational runbook
 | /calendar week | Show events for the next 7 days |
 | /calendar <person> | Show a person's calendar (jake, loubi, joce, nana, elliot, henry, violette) |
 | /status | System health: message counts, memory counts, recipe count, last n8n error (jake channels only) |
+| /private [on\|off] | Toggle incognito mode for this channel — no conversation or memory persistence while on; /private off also deletes Bruce's messages sent during the session |
+| /purge [N\|all] | Delete recent messages in this channel (server: bulk-delete for anything <14 days old; DMs: only Bruce's own messages — Discord restriction) |
 | /help | Show all commands |
 | /save-recipe <title>\n<content> | Save a recipe to Postgres |
 | /recipes [search] | List or search saved recipes |
