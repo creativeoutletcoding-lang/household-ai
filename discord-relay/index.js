@@ -186,6 +186,11 @@ client.once(Events.ClientReady, (c) => {
 
 client.on(Events.MessageCreate, async (message) => {
   try {
+    // DMs are handled exclusively by client.ws.on('MESSAGE_CREATE') above.
+    // Guard here so that if discord.js starts emitting messageCreate for a DM
+    // channel after it gets cached, we don't relay the same message twice.
+    if (message.guildId === null) return;
+
     // Bot messages: we don't relay them. But if the message is from US,
     // that means n8n just replied — clear any typing indicator we started
     // for this channel/thread so "Bruce is typing…" goes away immediately.
@@ -260,7 +265,12 @@ client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
 // Guild messages still go through the normal messageCreate handler below.
 client.ws.on('MESSAGE_CREATE', async (data) => {
   if (data.guild_id) return; // guild messages handled by messageCreate
-  if (data.author?.bot) return; // ignore bot DMs
+
+  // Bot's own reply in the DM — clear typing indicator and stop.
+  if (data.author?.bot) {
+    if (data.author.id === client.user?.id) stopTyping(data.channel_id);
+    return;
+  }
 
   log(`DM from ${data.author?.username} (${data.author?.id}): ${String(data.content || '').slice(0, 60)}`);
 
