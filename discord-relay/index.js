@@ -33,7 +33,7 @@ const client = new Client({
     GatewayIntentBits.DirectMessageTyping,
     GatewayIntentBits.DirectMessageReactions,
   ],
-  partials: [Partials.Channel, Partials.Message],
+  partials: [Partials.Channel, Partials.Message, Partials.User],
 });
 
 // Channel types that represent threads (not forum/standalone channels).
@@ -186,6 +186,8 @@ client.once(Events.ClientReady, (c) => {
 
 client.on(Events.MessageCreate, async (message) => {
   try {
+    log(`messageCreate: type=${message.channel?.type} guildId=${message.guildId} author=${message.author?.username}`);
+
     // Bot messages: we don't relay them. But if the message is from US,
     // that means n8n just replied — clear any typing indicator we started
     // for this channel/thread so "Bruce is typing…" goes away immediately.
