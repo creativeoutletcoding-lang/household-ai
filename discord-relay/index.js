@@ -6,7 +6,7 @@
 //
 // Replaces the n8n community Discord Trigger node, which was unreliable.
 
-const { Client, GatewayIntentBits, Events, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Events, ChannelType } = require('discord.js');
 
 const {
   DISCORD_BOT_TOKEN,
@@ -29,7 +29,9 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
   ],
+  partials: [Partials.Channel, Partials.Message],
 });
 
 // Channel types that represent threads (not forum/standalone channels).
@@ -116,22 +118,17 @@ async function buildReferencedMessage(message) {
 
 function buildPayload(message, referenced_message) {
   const channel = message.channel;
-  const isThread = channel ? THREAD_TYPES.has(channel.type) : false;
+  const isDm = channel?.type === ChannelType.DM;
+  const isThread = !isDm && channel ? THREAD_TYPES.has(channel.type) : false;
 
-  // For threads, the routing/persona lives on the PARENT channel (e.g. a
-  // thread inside #jake-personal should use jake-personal's persona). We
-  // still forward the thread's own id/name so n8n can scope memory to the
-  // thread.
+  // For DMs: route using the literal channel name 'dm'.
+  // For threads: routing/persona comes from the parent channel.
   const parent = isThread ? channel.parent : null;
-  const routingChannelId = isThread && parent ? parent.id : message.channelId;
-  const routingChannelName = isThread && parent ? parent.name : (channel?.name ?? '');
+  const routingChannelId = isDm ? (channel?.id ?? '') : (isThread && parent ? parent.id : message.channelId);
+  const routingChannelName = isDm ? 'dm' : (isThread && parent ? parent.name : (channel?.name ?? ''));
 
   // Prefer the guild nickname, then the user's chosen global display name,
-  // then the handle-style username. Bruce uses this name in system prompts
-  // and as the speaker prefix in shared-channel history, so the best-looking
-  // name the person has already picked for themselves is what we want.
-  // Overwriting `author.username` keeps one source of truth downstream — the
-  // raw handle isn't used for anything else.
+  // then the handle-style username.
   const displayName =
     message.member?.displayName
     || message.author?.globalName
@@ -149,6 +146,7 @@ function buildPayload(message, referenced_message) {
     channel_id: routingChannelId,
     channel_name: routingChannelName,
     guild_id: message.guildId ?? '',
+    is_dm: isDm,
     is_thread: isThread,
     thread_id: isThread ? channel.id : '',
     thread_name: isThread ? (channel.name ?? '') : '',
@@ -194,27 +192,24 @@ client.on(Events.MessageCreate, async (message) => {
       }
       return;
     }
-    if (message.guildId !== DISCORD_SERVER_ID) return;
+
+    // Allow DMs through; reject messages from other guilds.
+    const isDm = message.channel?.type === ChannelType.DM;
+    if (!isDm && message.guildId !== DISCORD_SERVER_ID) return;
 
     // Drop Discord system messages (thread-created notices, pin announcements,
-    // member joins, etc.) — we never want to relay these to n8n. In
-    // particular this is what suppresses the "X started a thread: …" notice
-    // that appears in the parent channel when a thread is created. The
-    // thread's own starter message fires a separate messageCreate inside the
-    // thread itself and should flow through normally so Bruce can reply to
-    // it there.
+    // member joins, etc.) — we never want to relay these to n8n.
     if (message.system) return;
 
-    const referenced_message = await buildReferencedMessage(message);
+    const referenced_message = isDm ? null : await buildReferencedMessage(message);
     const payload = buildPayload(message, referenced_message);
 
-    // Only show "Bruce is typing…" when Bruce will actually respond:
-    // always-respond channels (no mention needed) or any channel where
-    // the bot is @mentioned. This avoids a dangling typing indicator in
-    // read-only / mention-only channels where no reply will arrive.
+    // Show "Bruce is typing…" when Bruce will actually respond:
+    // DMs always get a response; guild channels only in always-respond
+    // channels or when @mentioned.
     const routingName = payload.channel_name;
     const isMentioned = payload.mentions.some((u) => u.id === BOT_USER_ID);
-    if (ALWAYS_RESPOND_CHANNELS.has(routingName) || isMentioned) {
+    if (isDm || ALWAYS_RESPOND_CHANNELS.has(routingName) || isMentioned) {
       startTyping(message.channel);
     }
 

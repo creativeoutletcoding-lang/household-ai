@@ -91,6 +91,7 @@ services:
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
 
       # --- pass third-party API keys through to workflows ---
+      N8N_API_KEY: ${N8N_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN}
