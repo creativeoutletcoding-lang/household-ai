@@ -186,8 +186,6 @@ client.once(Events.ClientReady, (c) => {
 
 client.on(Events.MessageCreate, async (message) => {
   try {
-    log(`messageCreate: type=${message.channel?.type} guildId=${message.guildId} author=${message.author?.username}`);
-
     // Bot messages: we don't relay them. But if the message is from US,
     // that means n8n just replied — clear any typing indicator we started
     // for this channel/thread so "Bruce is typing…" goes away immediately.
@@ -257,14 +255,47 @@ client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
   }
 });
 
-// Raw gateway listener — bypasses discord.js event suppression.
-// If a DM arrives here but not in MessageCreate, the issue is in discord.js
-// intent/partial handling. If it never arrives here, Discord's Gateway isn't
-// delivering the event to this bot at all.
-client.ws.on('MESSAGE_CREATE', (data) => {
-  if (!data.guild_id) {
-    log(`raw DM event: channel=${data.channel_id} author=${data.author?.username} (${data.author?.id})`);
-  }
+// Raw gateway handler for DMs — discord.js silently drops MESSAGE_CREATE for
+// DM channels even with correct intents + partials, so we bypass it entirely.
+// Guild messages still go through the normal messageCreate handler below.
+client.ws.on('MESSAGE_CREATE', async (data) => {
+  if (data.guild_id) return; // guild messages handled by messageCreate
+  if (data.author?.bot) return; // ignore bot DMs
+
+  log(`DM from ${data.author?.username} (${data.author?.id}): ${String(data.content || '').slice(0, 60)}`);
+
+  const payload = {
+    id:           data.id,
+    content:      data.content || '',
+    author: {
+      id:       data.author.id,
+      username: data.author.global_name || data.author.username || '',
+      bot:      data.author.bot === true,
+    },
+    channel_id:   data.channel_id,
+    channel_name: 'dm',
+    guild_id:     '',
+    is_dm:        true,
+    is_thread:    false,
+    thread_id:    '',
+    thread_name:  '',
+    mentions:     (data.mentions || []).map((u) => ({ id: u.id })),
+    attachments:  (data.attachments || []).map((a) => ({
+      url:          a.url,
+      filename:     a.filename,
+      content_type: a.content_type || 'application/octet-stream',
+      size:         a.size,
+    })),
+    referenced_message: null,
+  };
+
+  // Show typing indicator in the DM channel.
+  try {
+    const dmChannel = await client.channels.fetch(data.channel_id).catch(() => null);
+    if (dmChannel) startTyping(dmChannel);
+  } catch (_) {}
+
+  await postToWebhook(payload);
 });
 
 // discord.js auto-reconnects; these are just log hooks.
