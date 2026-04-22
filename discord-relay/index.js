@@ -255,6 +255,16 @@ client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
   }
 });
 
+// Raw gateway listener — bypasses discord.js event suppression.
+// If a DM arrives here but not in MessageCreate, the issue is in discord.js
+// intent/partial handling. If it never arrives here, Discord's Gateway isn't
+// delivering the event to this bot at all.
+client.ws.on('MESSAGE_CREATE', (data) => {
+  if (!data.guild_id) {
+    log(`raw DM event: channel=${data.channel_id} author=${data.author?.username} (${data.author?.id})`);
+  }
+});
+
 // discord.js auto-reconnects; these are just log hooks.
 client.on(Events.ShardDisconnect, (_ev, id) => log(`shard ${id} disconnected`));
 client.on(Events.ShardReconnecting, (id) => log(`shard ${id} reconnecting`));
