@@ -62,7 +62,7 @@ The n8n 2.x task-runner sandbox is a restricted JS environment. These globals ar
 
 **Every persona must assert web search capability.** The common persona tail in Channel Router includes: "You have web search capabilities via Perplexity that trigger automatically for real-time queries, URLs, and current events. Never say you lack real-time data, cannot access the internet, or cannot check current information."
 
-This tail appears in all 13 personas. When adding or editing personas, preserve it. Never let a persona say it cannot browse the web or lacks real-time data.
+This tail appears in all 14 personas (13 channel + 1 DM). When adding or editing personas, preserve it. Never let a persona say it cannot browse the web or lacks real-time data.
 
 ## Auto-search trigger patterns (Detect Search Intent node)
 
@@ -79,4 +79,24 @@ Citation URLs in `/search` replies are wrapped in `<https://url>` by Parse Perpl
 
 ## /status command
 
-Jake-only command (restricted to jake-personal, fig, jake-ask in Channel Router). Runs a UNION ALL query against Postgres (discord_conversations, user_memories, recipes tables) and returns message counts, memory counts by scope, and recipe total. Command Switch output 11 → Query Status → Format Status Reply → Reply Status.
+Jake-only command (restricted to jake-personal, fig, jake-ask in Channel Router). Pipeline: Command Switch output 11 → Query Status (Postgres UNION ALL: messages, memories, recipes) → Fetch Last n8n Error (HTTP GET to n8n API) → Format Status Reply → Reply Status. The last-error block requires `N8N_API_KEY` in the n8n environment block (already added to docker-compose.yml).
+
+## DM support
+
+discord-relay forwards DMs with `channel_name='dm'`, `is_dm=true`, `guild_id=''`. Channel Router detects `is_dm===true` and routes to the 'dm' persona (always-respond, sonnet). Typing indicator always shown in DMs. Discord reply nodes use the DM channel ID directly — the hardcoded guild ID in node config doesn't affect message delivery.
+
+Requires `GatewayIntentBits.DirectMessages` and `Partials.Channel, Partials.Message` in discord-relay (added). DMs don't fire `ThreadCreate` so the thread-join handler is never triggered.
+
+## Discord 2000-char message splitting
+
+Parse Claude Reply now runs `splitChunks(reply, 1900)` and returns one item per chunk. The Discord node (`Reply on Discord`) sends one message per item. `Persist Assistant Message` reads `$('Parse Claude Reply').first().json.reply` which is always the full unsplit text (first item always has the full reply).
+
+For recipes, `Format Recipes Reply` Code node is inserted before `Reply Recipes` and does the same chunk splitting. This pattern (Code node → multiple items → Discord node = multiple messages) can be applied to any reply node.
+
+## Generating code strings in Node.js scripts — backslash guardrail
+
+When writing Node.js scripts that generate JS code strings stored in workflow JSON:
+- **Never use template literals for code with backslash escapes** — `\S`, `\/`, `\n` etc. are silently mangled
+- **Use `String.fromCharCode(92)`** to construct a literal backslash unambiguously: `const BS = String.fromCharCode(92); const escapedNL = BS + 'n';`
+- **Use `RegExp()` constructor** instead of regex literals in generated code to avoid double-escaping fights
+- **Use string concatenation** (not template literals) for generated code blocks to keep escaping unambiguous

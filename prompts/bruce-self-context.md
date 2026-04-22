@@ -15,11 +15,11 @@ Use this when helping Jake build, debug, or extend the household AI system.
 - Server ID: 1495249842778148954
 - Bot ID: 1495252972026859520
 - Categories: SHARED, FAM, CPS, JAKE, LOUBI, JOCE, NANA
-- Behavior modes: always-respond (Jake/family channels), mention-only (shared channels)
+- Behavior modes: always-respond (Jake/family channels), mention-only (shared channels), always-respond (DMs)
 
 ## Workflow Architecture
 
-58 nodes in `workflows/discord-bruce.json`. High-level flow:
+60 nodes in `workflows/discord-bruce.json`. High-level flow:
 
 ```
 Webhook → Unwrap Body → Fetch User Preference → Channel Router
@@ -36,6 +36,7 @@ Webhook → Unwrap Body → Fetch User Preference → Channel Router
       9: /save-recipe → Save Recipe (Postgres) → Reply Save Recipe
      10: /recipes     → Query Recipes (Postgres) → Reply Recipes
      11: /status      → Query Status (Postgres) → Format Status Reply → Reply Status  [jake channels only]
+     DM:  channel_name='dm', is_dm=true → always-respond, 'dm' persona
      12: default chat → Should Respond? → Detect Search Intent → Auto-Search IF
                           → (true) Auto-Search Perplexity ↘
                           → (false) ─────────────────────→ Fetch Conversation History
@@ -56,6 +57,9 @@ Webhook → Unwrap Body → Fetch User Preference → Channel Router
 - All reply nodes use: `{{ $('Unwrap Body').first().json.thread_id || $('Unwrap Body').first().json.channel_id }}`
 - Replicate auth uses `Token` prefix (not `Bearer`)
 - Build Claude Request conditionally prepends self-context for jake-personal, fig, jake-ask channels
+- Parse Claude Reply returns multiple items when reply >1900 chars (splitChunks); Discord node sends one message per item
+- /status pipeline: Query Status → Fetch Last n8n Error (HTTP) → Format Status Reply → Reply Status
+- DM messages: discord-relay forwards with channel_name='dm', is_dm=true; Channel Router routes to 'dm' persona
 
 ## Postgres Schema
 
@@ -66,6 +70,8 @@ discord_conversations(id, guild_id, channel_id, user_id, role, content, created_
 user_model_preferences(guild_id, channel_id, user_id, model, updated_at)
 user_memories(id, guild_id, user_id, memory, created_at)
 recipes(id, discord_user_id, title, body, created_at, updated_at)
+
+Note: DMs use guild_id='' and channel_id=Discord DM channel ID.
 ```
 
 ## Credentials
@@ -114,7 +120,7 @@ runbook.md                  — operational runbook
 | /calendar | Show today's family calendar events (Google Calendar) |
 | /calendar week | Show events for the next 7 days |
 | /calendar <person> | Show a person's calendar (jake, loubi, joce, nana, elliot, henry, violette) |
-| /status | System health: message counts, memory counts, recipe count (jake channels only) |
+| /status | System health: message counts, memory counts, recipe count, last n8n error (jake channels only) |
 | /help | Show all commands |
 | /save-recipe <title>\n<content> | Save a recipe to Postgres |
 | /recipes [search] | List or search saved recipes |

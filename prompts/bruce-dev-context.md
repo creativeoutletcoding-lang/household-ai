@@ -83,6 +83,16 @@ The n8n UI import requires manual credential verification on every node after im
 **Cause:** Skylight's API is unofficial/reverse-engineered, requiring a full PKCE OAuth flow in pure JS inside n8n's restricted Code node sandbox. The sandbox blocks too many APIs needed for crypto.
 **Fix:** Removed all Skylight nodes (Build Skylight Request, Authenticate Skylight, Call Skylight API, Parse Skylight Reply). Replaced with n8n's built-in Google Calendar node against johnson2016family@gmail.com. Official API, first-class n8n node, no sandbox issues.
 
+### Build Claude Request SyntaxError — backslash escape loss in Node.js heredocs
+**Symptom:** n8n execution fails with "SyntaxError: Invalid or unexpected token" at the systemPrompt assembly line in Build Claude Request.
+**Cause:** When constructing a JS string via a Node.js `<< 'SCRIPT'` heredoc, writing `'\\n\\n'` in the script produces two real newline characters (charcode 10), NOT the two-char escape sequence `\n\n`. These real newlines inside a single-quoted JS string literal are a syntax error.
+**Fix:** Use `String.fromCharCode(92) + 'n'` to construct `\n` unambiguously. Example: `const BS = String.fromCharCode(92); const NL = BS + 'n';`. Confirmed the chars are [92, 110] (backslash + n), not [10] (newline). This applies to ANY backslash escape you want to appear literally in generated code strings.
+
+### n8n Template literal backslash loss
+**Symptom:** `\S` or `\/` written inside a Node.js template literal that generates workflow code becomes just `S` or `/` — the backslash is dropped.
+**Cause:** Unrecognized escape sequences in template literals are silently ignored (non-strict mode).
+**Fix:** Use `RegExp()` constructor instead of regex literals in generated Code node strings. For URL patterns, use `new RegExp('(^|[\\\\s(])(https?://[^\\\\s<>"]+)', 'g')` — the four backslashes in the Node.js string become two in the workflow JSON, which become one each in the runtime regex.
+
 ---
 
 ## Build Patterns
@@ -139,13 +149,17 @@ Missing any one of these causes silent failure — $env returns undefined with n
 
 ### What's shipped and working
 - Discord relay with typing indicators, thread support, attachment handling
-- Channel routing with 18 channels across 7 categories
-- 13 inline personas (all with explicit web-search capability notice — never claims to lack real-time data)
+- DM support: discord-relay forwards DMs with channel_name='dm', is_dm=true; Channel Router routes to 'dm' persona (always-respond, sonnet); typing indicator always shown in DMs
+- Channel routing with 18 channels across 7 categories + DM routing
+- 14 inline personas (13 channel + 1 DM — all with explicit web-search capability notice; never claims to lack real-time data)
 - Commands: /use, /remember, /forget, /memories, /clear, /image, /image --hd, /search, /help, /save-recipe, /recipes, /status
 - /calendar via n8n Google Calendar node (johnson2016family@gmail.com) — credential setup pending, sub-calendar IDs pending
 - Auto-search (Detect Search Intent): URLs, sports/scores, live events, "tonight", "right now", "happening now", "today", near-me queries
 - Citation URLs from /search wrapped in `<>` to suppress Discord rich embeds
 - Auto-search URL hint in Build Claude Request (Claude told to wrap URLs in `<>` when citing)
+- Long reply splitting: Parse Claude Reply splits replies >1900 chars into chunks, sends multiple Discord messages instead of truncating
+- Recipe list splitting: Format Recipes Reply Code node splits long recipe lists across multiple messages
+- /status includes last n8n error: pipeline is Query Status → Fetch Last n8n Error (HTTP GET to n8n API) → Format Status Reply (requires N8N_API_KEY in docker-compose n8n env block)
 - Auto memory extraction via Haiku (post-conversation, background)
 - Cross-channel memory (all memories for a user, regardless of channel)
 - Duplicate memory prevention (unique index + ON CONFLICT DO NOTHING)
@@ -154,9 +168,11 @@ Missing any one of these causes silent failure — $env returns undefined with n
 - Current speaker identification
 - Document/image vision via Claude (attachments converted to content blocks)
 - Workflow import/deploy scripts
+- scripts/cleanup-channels.js: audit and delete duplicate/uncategorized Discord channels (dry run by default, --apply to execute)
 
 ### What's in progress or recently added
 - Google Calendar integration — workflow nodes built, awaiting OAuth credential creation in n8n UI and sub-calendar ID population in Parse Calendar Cmd node
+- DM support shipped — needs real-world testing (first DM conversation will validate routing, memory, history)
 
 ### What's pending (not started)
 - Google Calendar OAuth credential setup (see runbook.md → Calendar section)
@@ -171,6 +187,7 @@ Missing any one of these causes silent failure — $env returns undefined with n
 - Mac Mini M5 Pro migration (expected Sept-Oct 2026)
 - Rotate exposed Replicate API key
 - Discord thread auto-archive configuration (script exists at scripts/set-thread-archive.js; needs Manage Channels permission granted to bot first)
+- Discord channel cleanup (scripts/cleanup-channels.js exists — run `DISCORD_BOT_TOKEN=... DISCORD_SERVER_ID=... node scripts/cleanup-channels.js --apply` to remove duplicate #general)
 
 ### Key people
 - Jake (1495249206087127052) — server admin, Account Executive at FIG, runs CPS with Nana, primary builder
