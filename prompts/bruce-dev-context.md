@@ -18,11 +18,8 @@ Cost. Memory extraction runs on every conversation turn as a background call aft
 ### Why cross-scope dedup on memories
 The unique index is on (discord_user_id, LOWER(content)) with no scope column. A fact is a fact regardless of whether it came from /remember (scope='channel') or auto extraction (scope='auto'). If Jake /forgets a memory (hard DELETE), the auto extractor can re-learn it naturally in a future conversation — the index no longer blocks after the row is gone.
 
-### Why direct Skylight API instead of MCP container
-The @eaglebyte/skylight-mcp package uses stdio JSON-RPC transport, not HTTP. When containerized, it boots, authenticates, then waits on stdin — no HTTP server to call from n8n. The container would restart in a loop. The fix is calling Skylight's API directly from n8n Code nodes using the OAuth flow from fergbrain's auth-update fork (PR #39 on TheEagleByte/skylight-mcp).
-
-### Why Google Calendar was deferred
-Skylight is the family's source of truth for calendar data. Google Calendar was empty and Skylight's two-way sync doesn't retroactively push existing events. Rather than fight the sync or manually re-enter events, Bruce connects to Skylight directly. Google Calendar may be revisited if Skylight's API becomes unstable (it's unofficial and reverse-engineered).
+### Why Google Calendar instead of Skylight
+Skylight's API is unofficial and reverse-engineered. The OAuth PKCE flow required a pure-JS SHA-256 implementation (no Web Crypto in n8n's task-runner sandbox), and even after that, `Uint8Array` spread syntax was blocked, requiring `Array.from()` workarounds. The integration kept hitting new sandbox restrictions with each fix. Google Calendar uses an official API with a first-class n8n node — no Code node crypto gymnastics, no sandbox issues, no fragile reverse-engineered endpoints.
 
 ### Why workflow import via script instead of UI
 The n8n UI import requires manual credential verification on every node after import — credentials silently revert to {}. The import script (scripts/import-workflow.js) pushes via the n8n REST API and validates credential IDs programmatically. Always use N8N_BASE_URL=http://127.0.0.1:5678 on the VPS — Node 18's fetch implementation fails with localhost.
@@ -80,6 +77,11 @@ The n8n UI import requires manual credential verification on every node after im
 **Symptom:** Command responses (/search, /image, etc.) appear in the parent channel when used inside a thread.
 **Cause:** Reply nodes were using Channel Router's channelId which points to the parent. Thread replies need to go to threadId.
 **Fix:** All Discord reply nodes must use: {{ thread_id || channelId }} pattern.
+
+### Skylight calendar integration — abandoned
+**Symptom / history:** Multiple rounds of sandbox workarounds: URLSearchParams missing → manual encode; TextEncoder missing → charCodeAt loop; crypto.subtle missing → inline FIPS 180-4 SHA-256; `$workflow.staticData` undefined → try/catch guard; `...sha256(bytes)` Uint8Array spread blocked → Array.from() + apply(). Each fix exposed the next sandbox restriction.
+**Cause:** Skylight's API is unofficial/reverse-engineered, requiring a full PKCE OAuth flow in pure JS inside n8n's restricted Code node sandbox. The sandbox blocks too many APIs needed for crypto.
+**Fix:** Removed all Skylight nodes (Build Skylight Request, Authenticate Skylight, Call Skylight API, Parse Skylight Reply). Replaced with n8n's built-in Google Calendar node against johnson2016family@gmail.com. Official API, first-class n8n node, no sandbox issues.
 
 ---
 
@@ -139,7 +141,8 @@ Missing any one of these causes silent failure — $env returns undefined with n
 - Discord relay with typing indicators, thread support, attachment handling
 - Channel routing with 18 channels across 7 categories
 - 13 inline personas (general, family, fig, jake-personal, ask, travel, food, cps, loubi-personal, wis, joce-personal, joce-school, nana-personal)
-- Commands: /use, /remember, /forget, /memories, /clear, /image, /image --hd, /search
+- Commands: /use, /remember, /forget, /memories, /clear, /image, /image --hd, /search, /help, /save-recipe, /recipes
+- /calendar via n8n Google Calendar node (johnson2016family@gmail.com) — credential setup pending, sub-calendar IDs pending
 - Auto memory extraction via Haiku (post-conversation, background)
 - Cross-channel memory (all memories for a user, regardless of channel)
 - Duplicate memory prevention (unique index + ON CONFLICT DO NOTHING)
@@ -150,13 +153,13 @@ Missing any one of these causes silent failure — $env returns undefined with n
 - Workflow import/deploy scripts
 
 ### What's in progress or recently added
-- Skylight calendar direct API integration (replacing failed MCP approach)
+- Google Calendar integration — workflow nodes built, awaiting OAuth credential creation in n8n UI and sub-calendar ID population in Parse Calendar Cmd node
 - Auto-search detection (Perplexity triggered by real-time queries)
 - Bruce self-context injection for Jake's channels
-- Thread_id fix across all command reply nodes
 
 ### What's pending (not started)
-- /save-recipe and /recipes commands (new Postgres table + workflow branches)
+- Google Calendar OAuth credential setup (see runbook.md → Calendar section)
+- Sub-calendar IDs in Parse Calendar Cmd node (Elliot, Henry, Joce, Loubi, Nana, Violette)
 - Proactive reminders (scheduled Bruce messages — needs scheduler design)
 - Email integration (iCloud → Gmail forwarding → n8n Gmail nodes)
 - Nana Discord onboarding (ID: 1495888856078225528, categories exist, needs View Channel permission)

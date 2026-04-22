@@ -103,14 +103,6 @@ services:
       DISCORD_SERVER_ID: ${DISCORD_SERVER_ID}
       DISCORD_BOT_USER_ID: ${DISCORD_BOT_USER_ID}
 
-      # --- Skylight MCP — surfaced so the Bruce workflow can read them in
-      # Code/HTTP nodes (frame id and timezone are referenced by Build
-      # Skylight Request). The MCP server itself gets them directly via the
-      # skylight-mcp service below; these duplicates just make them visible
-      # to $env in n8n.
-      SKYLIGHT_FRAME_ID: ${SKYLIGHT_FRAME_ID}
-      SKYLIGHT_TIMEZONE: ${SKYLIGHT_TIMEZONE:-America/New_York}
-
       # --- runtime ---
       GENERIC_TIMEZONE: ${TZ:-America/Los_Angeles}
       N8N_LOG_LEVEL: info

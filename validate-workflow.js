@@ -39,22 +39,37 @@ console.log('Auto-Search IF false → ' + (autoIfConn?.main?.[1]?.[0]?.node || '
 const autoPerplexityConn = workflow.connections['Auto-Search Perplexity'];
 console.log('Auto-Search Perplexity → ' + (autoPerplexityConn?.main?.[0]?.[0]?.node || 'MISSING'));
 
-// Check Skylight nodes
-const authNode = workflow.nodes.find(n => n.name === 'Authenticate Skylight');
+// Check Skylight nodes are gone
+const authNode   = workflow.nodes.find(n => n.name === 'Authenticate Skylight');
 const callApiNode = workflow.nodes.find(n => n.name === 'Call Skylight API');
 const callMcpNode = workflow.nodes.find(n => n.name === 'Call Skylight MCP');
-console.log('\nSkylight nodes:');
-console.log('  Authenticate Skylight:', authNode ? 'EXISTS' : 'MISSING');
-console.log('  Call Skylight API:', callApiNode ? 'EXISTS' : 'MISSING');
-console.log('  Call Skylight MCP (should be gone):', callMcpNode ? 'STILL EXISTS' : 'REMOVED OK');
+console.log('\nSkylight nodes (all should be REMOVED):');
+console.log('  Authenticate Skylight:', authNode ? 'STILL EXISTS (remove!)' : 'REMOVED OK');
+console.log('  Call Skylight API:', callApiNode ? 'STILL EXISTS (remove!)' : 'REMOVED OK');
+console.log('  Call Skylight MCP:', callMcpNode ? 'STILL EXISTS (remove!)' : 'REMOVED OK');
 
-// Check calendar pipeline wiring
-const buildSkylightConn = workflow.connections['Build Skylight Request'];
-console.log('Build Skylight Request → ' + (buildSkylightConn?.main?.[0]?.[0]?.node || 'MISSING'));
-const authConn = workflow.connections['Authenticate Skylight'];
-console.log('Authenticate Skylight → ' + (authConn?.main?.[0]?.[0]?.node || 'MISSING'));
-const callApiConn = workflow.connections['Call Skylight API'];
-console.log('Call Skylight API → ' + (callApiConn?.main?.[0]?.[0]?.node || 'MISSING'));
+// Check Google Calendar pipeline
+const parseCmdNode = workflow.nodes.find(n => n.name === 'Parse Calendar Cmd');
+const gcalNode     = workflow.nodes.find(n => n.name === 'Get Calendar Events');
+const fmtNode      = workflow.nodes.find(n => n.name === 'Format Calendar Reply');
+const replyCal     = workflow.nodes.find(n => n.name === 'Reply Calendar');
+console.log('\nGoogle Calendar nodes:');
+console.log('  Parse Calendar Cmd:', parseCmdNode ? 'EXISTS' : 'MISSING');
+console.log('  Get Calendar Events:', gcalNode ? 'EXISTS' : 'MISSING');
+if (gcalNode) {
+  const gcalCred = gcalNode.credentials?.googleCalendarOAuth2Api?.id || 'MISSING';
+  console.log('  Get Calendar Events cred:', gcalCred === 'GOOGLE_CALENDAR_CRED_ID' ? gcalCred + ' (placeholder — create OAuth cred in n8n UI)' : gcalCred);
+}
+console.log('  Format Calendar Reply:', fmtNode ? 'EXISTS' : 'MISSING');
+console.log('  Reply Calendar:', replyCal ? 'EXISTS' : 'MISSING');
+
+// Check Google Calendar wiring
+const parseCmdConn = workflow.connections['Parse Calendar Cmd'];
+console.log('Parse Calendar Cmd → ' + (parseCmdConn?.main?.[0]?.[0]?.node || 'MISSING'));
+const gcalConn = workflow.connections['Get Calendar Events'];
+console.log('Get Calendar Events → ' + (gcalConn?.main?.[0]?.[0]?.node || 'MISSING'));
+const fmtConn = workflow.connections['Format Calendar Reply'];
+console.log('Format Calendar Reply → ' + (fmtConn?.main?.[0]?.[0]?.node || 'MISSING'));
 
 // Check thread_id in all Discord reply nodes
 console.log('\nDiscord reply channel expressions:');

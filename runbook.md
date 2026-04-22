@@ -201,55 +201,52 @@ The `discord-relay` container auto-joins every thread it sees. If Bruce doesn't 
 
 Open the workflow → Channel Router node → compare the `PERSONAS` entry for that channel with `prompts/channel-personas/<slug>.md`. If they've drifted, paste the file content into the Code node and save.
 
-## Calendar (Skylight Direct API)
+## Calendar (Google Calendar)
 
-Bruce reads and writes the family Skylight Frame calendar via **direct HTTP
-calls** from n8n Code/HTTP nodes. There is no MCP sidecar container.
+Bruce reads the family calendar via n8n's built-in **Google Calendar node** connected to `johnson2016family@gmail.com`. Per-person sub-calendars exist for Elliot, Henry, Jake, Joce, Loubi, Nana, and Violette.
 
 ### Architecture
 
-The `/calendar` command branch in `workflows/discord-bruce.json` has four nodes:
+The `/calendar` command branch has four nodes:
 
 | Node | Type | Purpose |
 |---|---|---|
-| Build Skylight Request | Code | Parse `/calendar` arg; detect operation (list/add/remove/update) |
-| Authenticate Skylight | Code | OAuth login; token cached in `$workflow.staticData` |
-| Call Skylight API | HTTP Request | Direct endpoint call using access token |
-| Parse Skylight Reply | Code | Format response for Discord (emoji, date/time) |
+| Parse Calendar Cmd | Code | Interpret arg (today/week/person), compute timeMin/timeMax, resolve calendar ID |
+| Get Calendar Events | Google Calendar | Fetch up to 15 events for the resolved calendar and time range |
+| Format Calendar Reply | Code | Format event list for Discord (`**Title** — Month Day, time`) |
+| Reply Calendar | Discord | Send the formatted reply to the channel or thread |
 
-### Required env vars
+### One-time credential setup (Google Calendar OAuth)
 
-All four must be set in `.env` **and** mapped in the n8n `environment:` block in `docker-compose.yml`. `N8N_BLOCK_ENV_ACCESS_IN_NODE` must be `"false"`.
+The Google Calendar credential must be created manually in the n8n UI because OAuth2 requires a browser redirect. The workflow references credential ID `GOOGLE_CALENDAR_CRED_ID` — replace this after creating the credential.
 
-| Var | Description |
-|---|---|
-| `SKYLIGHT_EMAIL` | Skylight account email |
-| `SKYLIGHT_PASSWORD` | Skylight account password |
-| `SKYLIGHT_FRAME_ID` | Frame ID from Skylight web portal |
-| `SKYLIGHT_TIMEZONE` | IANA timezone (default: `America/New_York`) |
+**Steps:**
 
-### Auth flow (Authenticate Skylight node)
+1. Open the n8n UI → **Credentials** → **Add credential** → select **Google Calendar OAuth2 API**
+2. Name it `Google Calendar (johnson2016family)`
+3. Use the Google OAuth app associated with `johnson2016family@gmail.com` (or create one at console.cloud.google.com — enable the Google Calendar API, create an OAuth client ID)
+4. Complete the browser OAuth flow — n8n will store the token
+5. Note the credential ID from the URL (`/credentials/<ID>/edit`)
+6. In `workflows/discord-bruce.json`, find `"GOOGLE_CALENDAR_CRED_ID"` and replace with the real ID
+7. Reimport the workflow: `N8N_API_KEY=... N8N_BASE_URL=http://127.0.0.1:5678 node scripts/import-workflow.js`
 
-1. Check `$workflow.staticData.skylightToken` and `.skylightTokenExpiry`
-2. If token is valid, return it immediately
-3. Otherwise POST credentials to Skylight OAuth endpoint
-4. Store token + expiry in `$workflow.staticData`
-5. On 401 from Call Skylight API: clear `staticData` and re-authenticate
+### Sub-calendar IDs
+
+After setting up the credential, update the `CALENDAR_IDS` map in the **Parse Calendar Cmd** Code node with the real calendar IDs. Find each ID in Google Calendar → Settings (gear icon) → click a person's calendar → **Calendar ID** field.
+
+Defaults until updated: Joce, Loubi, Nana, Elliot, Henry, Violette all use placeholder strings; Jake uses `primary`.
 
 ### In-Discord `/calendar` command
 
-- `/calendar` or `/calendar list` — list events for the frame
-- `/calendar add <description>` — create an event (include date/time in description)
-- `/calendar remove <id>` — delete event by ID (run `/calendar` first to see IDs)
-- `/calendar update <id> <changes>` — update an event
+- `/calendar` — list today's events from the primary calendar
+- `/calendar week` — list events for the next 7 days
+- `/calendar <person>` — list today's events for a specific person's sub-calendar (jake, loubi, joce, nana, elliot, henry, violette)
 
 ### Known failure modes
 
-- **Auth errors** — wrong `SKYLIGHT_EMAIL` / `SKYLIGHT_PASSWORD` in `.env`. Verify and restart n8n: `docker compose up -d n8n`.
-- **Events land on the wrong frame** — `SKYLIGHT_FRAME_ID` mismatch. Check the Skylight web portal for the correct frame ID.
-- **Times off by a day or in the wrong zone** — `SKYLIGHT_TIMEZONE` unset or not a valid IANA name. Default is `America/New_York`.
-- **Stale token errors** — the Authenticate Skylight node's `$workflow.staticData` may hold an expired token. Deactivate and reactivate the workflow to clear static data.
-- **`/calendar` env vars not visible** — ensure `N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"` is set in `docker-compose.yml` and n8n has been restarted.
+- **Credential not set** — validate-workflow.js will report `GOOGLE_CALENDAR_CRED_ID` as MISSING. Create the credential and replace the placeholder.
+- **Empty results** — sub-calendar IDs are still placeholders. Update `CALENDAR_IDS` in Parse Calendar Cmd.
+- **Wrong timezone** — the Format Calendar Reply node hardcodes `America/New_York`. Edit if needed.
 
 ## Backup
 
