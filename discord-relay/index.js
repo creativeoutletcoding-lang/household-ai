@@ -118,9 +118,8 @@ async function buildReferencedMessage(message) {
 
 function buildPayload(message, referenced_message) {
   const channel = message.channel;
-  // guildId is null for DMs and a string for guild messages — more reliable
-  // than channel.type which may be unset on partial DM channels.
-  const isDm = !message.guildId;
+  // guildId is null for DMs, a string for guild messages.
+  const isDm = message.guildId === null;
   const isThread = !isDm && channel ? THREAD_TYPES.has(channel.type) : false;
 
   // For DMs: route using the literal channel name 'dm'.
@@ -180,7 +179,7 @@ async function postToWebhook(payload) {
 
 client.once(Events.ClientReady, (c) => {
   log(`logged in as ${c.user.tag} (${c.user.id})`);
-  log(`forwarding messages from guild ${DISCORD_SERVER_ID} -> ${N8N_WEBHOOK_URL}`);
+  log(`relay active — guild ${DISCORD_SERVER_ID} + DMs -> ${N8N_WEBHOOK_URL}`);
 });
 
 client.on(Events.MessageCreate, async (message) => {
@@ -195,14 +194,25 @@ client.on(Events.MessageCreate, async (message) => {
       return;
     }
 
-    // Allow DMs through; reject messages from other guilds.
-    // Use !guildId rather than channel.type — partial DM channels may not have type set.
-    const isDm = !message.guildId;
+    // guildId is null for DMs, a string for guild messages.
+    // Must check this BEFORE any channel access — partial DM channels may
+    // not have their properties populated until fetch() is called.
+    const isDm = message.guildId === null;
+
     if (!isDm && message.guildId !== DISCORD_SERVER_ID) return;
 
     // Drop Discord system messages (thread-created notices, pin announcements,
     // member joins, etc.) — we never want to relay these to n8n.
     if (message.system) return;
+
+    // Fetch the channel if it's partial so properties like .id and .type are set.
+    if (isDm && message.channel?.partial) {
+      try { await message.channel.fetch(); } catch (_) {}
+    }
+
+    if (isDm) {
+      log(`DM from ${message.author?.username ?? message.author?.id} (${message.author?.id})`);
+    }
 
     const referenced_message = isDm ? null : await buildReferencedMessage(message);
     const payload = buildPayload(message, referenced_message);
