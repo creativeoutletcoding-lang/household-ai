@@ -1,19 +1,110 @@
 {
-  "general":         { "behavior": "mention-only", "persona": "general",        "model": "claude-haiku-4-5-20251001", "historyScope": "channel" },
-  "family":          { "behavior": "mention-only", "persona": "family",         "model": "claude-sonnet-4-6",         "historyScope": "channel" },
-  "announcements":   { "behavior": "read-only",    "persona": null,             "model": null,                        "historyScope": "channel" },
-  "fig":             { "behavior": "always",       "persona": "fig",            "model": "claude-sonnet-4-6",         "historyScope": "user" },
-  "jake-personal":   { "behavior": "always",       "persona": "jake-personal",  "model": "claude-sonnet-4-6",         "historyScope": "user" },
-  "jake-ask":        { "behavior": "always",       "persona": "ask",            "model": "claude-haiku-4-5-20251001", "historyScope": "user" },
-  "travel":          { "behavior": "mention-only", "persona": "travel",         "model": "claude-sonnet-4-6",         "historyScope": "channel" },
-  "food":            { "behavior": "mention-only", "persona": "food",           "model": "claude-sonnet-4-6",         "historyScope": "channel" },
-  "cps":             { "behavior": "mention-only", "persona": "cps",            "model": "claude-sonnet-4-6",         "historyScope": "channel" },
-  "loubi-personal":  { "behavior": "always",       "persona": "loubi-personal", "model": "claude-sonnet-4-6",         "historyScope": "user" },
-  "wis":             { "behavior": "always",       "persona": "wis",            "model": "claude-sonnet-4-6",         "historyScope": "user" },
-  "loubi-ask":       { "behavior": "always",       "persona": "ask",            "model": "claude-haiku-4-5-20251001", "historyScope": "user" },
-  "joce-personal":   { "behavior": "always",       "persona": "joce-personal",  "model": "claude-sonnet-4-6",         "historyScope": "user" },
-  "joce-school":     { "behavior": "always",       "persona": "joce-school",    "model": "claude-sonnet-4-6",         "historyScope": "user" },
-  "joce-ask":        { "behavior": "always",       "persona": "ask",            "model": "claude-haiku-4-5-20251001", "historyScope": "user" },
-  "nana-personal":   { "behavior": "always",       "persona": "nana-personal",  "model": "claude-sonnet-4-6",         "historyScope": "user" },
-  "nana-ask":        { "behavior": "always",       "persona": "ask",            "model": "claude-haiku-4-5-20251001", "historyScope": "user" }
+  "general": {
+    "behavior": "mention-only",
+    "persona": "general",
+    "model": "claude-haiku-4-5-20251001",
+    "historyScope": "channel"
+  },
+  "family": {
+    "behavior": "mention-only",
+    "persona": "family",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "channel"
+  },
+  "announcements": {
+    "behavior": "read-only",
+    "persona": null,
+    "model": null,
+    "historyScope": "channel"
+  },
+  "fig": {
+    "behavior": "always",
+    "persona": "fig",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "user"
+  },
+  "jake-personal": {
+    "behavior": "always",
+    "persona": "jake-personal",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "user"
+  },
+  "jake-ask": {
+    "behavior": "always",
+    "persona": "ask",
+    "model": "claude-haiku-4-5-20251001",
+    "historyScope": "user"
+  },
+  "travel": {
+    "behavior": "mention-only",
+    "persona": "travel",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "channel"
+  },
+  "food": {
+    "behavior": "mention-only",
+    "persona": "food",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "channel"
+  },
+  "calendar": {
+    "behavior": "mention-only",
+    "persona": "calendar",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "channel"
+  },
+  "cps": {
+    "behavior": "mention-only",
+    "persona": "cps",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "channel"
+  },
+  "loubi-personal": {
+    "behavior": "always",
+    "persona": "loubi-personal",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "user"
+  },
+  "wis": {
+    "behavior": "always",
+    "persona": "wis",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "user"
+  },
+  "loubi-ask": {
+    "behavior": "always",
+    "persona": "ask",
+    "model": "claude-haiku-4-5-20251001",
+    "historyScope": "user"
+  },
+  "joce-personal": {
+    "behavior": "always",
+    "persona": "joce-personal",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "user"
+  },
+  "joce-school": {
+    "behavior": "always",
+    "persona": "joce-school",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "user"
+  },
+  "joce-ask": {
+    "behavior": "always",
+    "persona": "ask",
+    "model": "claude-haiku-4-5-20251001",
+    "historyScope": "user"
+  },
+  "nana-personal": {
+    "behavior": "always",
+    "persona": "nana-personal",
+    "model": "claude-sonnet-4-6",
+    "historyScope": "user"
+  },
+  "nana-ask": {
+    "behavior": "always",
+    "persona": "ask",
+    "model": "claude-haiku-4-5-20251001",
+    "historyScope": "user"
+  }
 }
