@@ -161,6 +161,8 @@ function buildPayload(message, referenced_message) {
       size: a.size,
     })),
     referenced_message,
+    reply_to_message_id: referenced_message?.id ?? '',
+    is_reply_to_bruce: referenced_message?.author?.id === BOT_USER_ID,
   };
 }
 
@@ -296,7 +298,17 @@ client.ws.on('MESSAGE_CREATE', async (data) => {
       content_type: a.content_type || 'application/octet-stream',
       size:         a.size,
     })),
-    referenced_message: null,
+    referenced_message: data.referenced_message ? {
+      id: data.referenced_message.id,
+      content: data.referenced_message.content,
+      author: {
+        id: data.referenced_message.author?.id,
+        username: data.referenced_message.author?.global_name || data.referenced_message.author?.username || '',
+        bot: data.referenced_message.author?.bot === true,
+      },
+    } : null,
+    reply_to_message_id: data.referenced_message?.id ?? '',
+    is_reply_to_bruce: data.referenced_message?.author?.id === BOT_USER_ID,
   };
 
   // Show typing indicator in the DM channel.
